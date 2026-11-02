@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Argos</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="janela">
+    <aside class="lateral">
+      <div class="lateral-topo pywebview-drag-region">
+        <div class="semaforos" id="semaforos">
+          <button class="s vermelho" data-acao="jan-fechar" aria-label="Fechar"><svg viewBox="0 0 10 10"><path d="M3 3l4 4M7 3l-4 4"/></svg></button>
+          <button class="s amarelo" data-acao="jan-minimizar" aria-label="Minimizar"><svg viewBox="0 0 10 10"><path d="M2.5 5h5"/></svg></button>
+          <button class="s verde" data-acao="jan-maximizar" aria-label="Maximizar"><svg viewBox="0 0 10 10"><path d="M3 3h3.2L3 6.2zM7 7H3.8L7 3.8z" class="cheio"/></svg></button>
+        </div>
+      </div>
+      <nav class="menu" id="menu"></nav>
+      <div class="lateral-rodape">
+        <div class="estado-docker" id="estado-docker"></div>
+        <button class="ib" data-acao="config" title="Configurações" aria-label="Configurações" id="btn-config"></button>
+      </div>
+    </aside>
+
+    <div class="principal">
+      <header class="barra pywebview-drag-region" id="barra">
+        <div class="barra-titulo">
+          <h1 id="titulo">Rodando</h1>
+          <span class="barra-sub" id="subtitulo"></span>
+        </div>
+        <div class="barra-acoes" id="barra-acoes"></div>
+      </header>
+      <main id="conteudo">
+        <section data-painel="rodando" id="p-rodando"></section>
+        <section data-painel="projetos" id="p-projetos" hidden></section>
+        <section data-painel="docker" id="p-docker" hidden></section>
+        <section data-painel="ferramentas" id="p-ferramentas" hidden></section>
+        <section data-painel="hoje" id="p-hoje" hidden></section>
+      </main>
+    </div>
+  </div>
+
+  <aside class="inspetor" id="gaveta" hidden>
+    <div class="inspetor-topo">
+      <div class="inspetor-info">
+        <div class="inspetor-titulo" id="log-titulo"></div>
+        <div class="inspetor-sub" id="log-sub"></div>
+      </div>
+      <label class="busca busca-log" title="Buscar no log (Ctrl+F)"><span id="ic-busca-log"></span><input id="log-busca" placeholder="Buscar" spellcheck="false"><span class="achados" id="log-achados"></span></label>
+      <label class="chave-peq" title="Mostrar só as linhas com erro"><input type="checkbox" id="log-erros"><span></span>Erros</label>
+      <label class="chave-peq" title="Acompanhar o final do log"><input type="checkbox" id="log-seguir" checked><span></span>Seguir</label>
+      <button class="ib" data-acao="log-copiar" title="Copiar" id="btn-copiar"></button>
+      <button class="ib" data-acao="abrir" data-tipo="logs" data-alvo="" title="Abrir pasta de logs" id="btn-pasta-logs"></button>
+      <button class="ib" data-acao="log-fechar" title="Fechar" id="btn-fechar-log"></button>
+    </div>
+    <pre class="log" id="log"></pre>
+  </aside>
+
+  <div class="fundo" id="fundo" hidden></div>
+  <div class="modal" id="modal" role="dialog" aria-modal="true" hidden></div>
+  <div class="avisos" id="avisos" aria-live="polite"></div>
+
+  <div class="redim direita" data-redim="e"></div>
+  <div class="redim baixo" data-redim="s"></div>
+  <div class="redim canto" data-redim="se"></div>
+
+  <script src="dica.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
