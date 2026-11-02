@@ -3,6 +3,7 @@ name = "argos"
 version = "1.2.0"
 description = "Painel do que está rodando de desenvolvimento: Docker, portas e processos."
 requires-python = ">=3.12"
+license = "MIT"
 dependencies = [
     "psutil>=6.0",
     "pystray>=0.19",

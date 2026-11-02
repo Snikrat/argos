@@ -24,6 +24,7 @@ São duas partes que usam os mesmos dados:
 - [Como funciona](#como-funciona)
 - [Desenvolvimento](#desenvolvimento)
 - [Limitações](#limitações)
+- [Licença](#licença)
 
 ## Instalação
 
@@ -388,3 +389,7 @@ Para lançar uma versão: altere `argos/__init__.py` e `pyproject.toml`, rode `i
 - Processos abertos fora do Argos não têm logs até serem reiniciados por ele.
 - Os endereços `*.localhost` dependem da porta 80 (ou 8088) estar livre.
 - O link público depende do cloudflared e do serviço gratuito de túneis da Cloudflare.
+
+## Licença
+
+[MIT](LICENSE).
