@@ -3,6 +3,7 @@ para iniciar e parar projetos sem abrir a janela."""
 
 from __future__ import annotations
 
+import logging
 import math
 import threading
 import time
@@ -102,10 +103,15 @@ class Bandeja:
         Item, Menu = pystray.MenuItem, pystray.Menu
         itens = [Item("Abrir painel", lambda: self._abrir(), default=True), Menu.SEPARATOR]
 
+        # O pystray só aceita ações com 0 a 2 parâmetros (conta até os que têm valor
+        # padrão): por isso a ação é montada aqui em vez de lambda com n=nome
+        def acao(f, *args):
+            return lambda: self._em_segundo_plano(f, *args)
+
         for nome in self._ativos:
             itens.append(Item(f"● {nome}", Menu(
-                Item("Reiniciar", lambda _i, _it, n=nome: self._em_segundo_plano(self._api.reiniciar_projeto, n)),
-                Item("Parar", lambda _i, _it, n=nome: self._em_segundo_plano(self._api.parar_projeto, n)),
+                Item("Reiniciar", acao(self._api.reiniciar_projeto, nome)),
+                Item("Parar", acao(self._api.parar_projeto, nome)),
             )))
 
         parados = [p for p in self._lista_projetos() if p["comandos"] and p["nome"] not in self._ativos]
@@ -114,8 +120,7 @@ class Bandeja:
                 cmds = [c for c in p["comandos"] if c["tipo"] != "godot"] or p["comandos"]
                 return Item(p["nome"], Menu(*[
                     Item(f"{c['sub']}: {c['rotulo']}" if c.get("sub") else c["rotulo"],
-                         lambda _i, _it, n=p["nome"], k=c["chave"]:
-                         self._em_segundo_plano(self._api.iniciar, n, k, False))
+                         acao(self._api.iniciar, p["nome"], c["chave"], False))
                     for c in cmds[:12]
                 ]))
             itens.append(Item("Iniciar", Menu(*[item_projeto(p) for p in parados])))
@@ -132,7 +137,14 @@ class Bandeja:
     # --- ciclo de vida ------------------------------------------------------
 
     def iniciar(self) -> None:
-        threading.Thread(target=self.icone.run, daemon=True, name="bandeja").start()
+        threading.Thread(target=self._rodar, daemon=True, name="bandeja").start()
+
+    def _rodar(self) -> None:
+        # Erro aqui deixava o app sem ícone e sem nenhum rastro no app.log
+        try:
+            self.icone.run()
+        except Exception:
+            logging.exception("o ícone da bandeja falhou")
 
     def parar(self) -> None:
         try:
