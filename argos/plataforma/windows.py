@@ -20,7 +20,7 @@ __all__ = [
     "listar_processos", "pasta_area_de_trabalho", "flags_processo", "encerrar_arvore", "executar_como_admin",
     "habilitar_cores_terminal", "comando_proprio", "abrir_pasta", "abrir_url", "abrir_vscode",
     "abrir_terminal", "registrar_atalho_global", "copiar_texto", "pasta_inicializacao", "SEM_JANELA",
-    "NOMES_VMMEM",
+    "NOMES_VMMEM", "ambiente_externo",
 ]
 
 SEM_JANELA = subprocess.CREATE_NO_WINDOW
@@ -176,11 +176,23 @@ def abrir_url(url: str) -> None:
     os.startfile(url)
 
 
+def ambiente_externo() -> dict:
+    """Variáveis para programas que o Argos abre (VS Code, terminal, Docker, Godot).
+
+    O app empacotado põe as próprias pastas no PATH. Herdando isso, o VS Code chegou a
+    carregar DLLs de dentro do Argos e prendê-las, e a atualização não conseguia
+    substituir os arquivos.
+    """
+    from argos.core.registro import _limpar_env
+
+    return _limpar_env(dict(os.environ))
+
+
 def abrir_vscode(caminho: str) -> bool:
     code = shutil.which("code")
     if not code:
         return False
-    subprocess.Popen([code, caminho], creationflags=SEM_JANELA)
+    subprocess.Popen([code, caminho], creationflags=SEM_JANELA, env=ambiente_externo())
     return True
 
 
@@ -190,9 +202,9 @@ def abrir_terminal(pasta: str, comando: str | None = None) -> None:
     extra = ["-NoExit", "-Command", comando] if comando else []
     wt = shutil.which("wt")
     if wt:
-        subprocess.Popen([wt, "-d", pasta, shell, *extra])
+        subprocess.Popen([wt, "-d", pasta, shell, *extra], env=ambiente_externo())
     else:
-        subprocess.Popen([shell, *extra], cwd=pasta, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        subprocess.Popen([shell, *extra], cwd=pasta, creationflags=subprocess.CREATE_NEW_CONSOLE, env=ambiente_externo())
 
 
 def pasta_inicializacao() -> Path:

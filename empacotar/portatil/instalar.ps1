@@ -14,8 +14,10 @@ Write-Host ''
 Write-Host '  Argos - instalando' -ForegroundColor Cyan
 Write-Host "  em $Destino"
 
-# Fecha o app se já estiver aberto (atualização)
-Get-Process argos-app -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$Destino*" } | Stop-Process -Force
+# Fecha o que estiver rodando desta pasta (atualização): o app e também o `argos mcp`
+# que o Claude Code mantém aberto, senão o argos.exe fica preso e não é substituído.
+# O Claude Code abre o MCP de novo sozinho na próxima conversa.
+Get-Process argos-app, argos -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$Destino*" } | Stop-Process -Force
 
 # Versão anterior, de quando o app se chamava "devs": sai do Menu Iniciar, da inicialização,
 # dos Aplicativos instalados e do PATH. Os dados (registro, preferências, logs) o próprio app
@@ -37,8 +39,23 @@ foreach ($pasta in 'app', 'webview', 'build', 'venv-dev') {
 Remove-Item (Join-Path (Split-Path $Destino) 'webview') -Recurse -Force -ErrorAction SilentlyContinue
 
 New-Item -ItemType Directory -Force $Destino | Out-Null
-robocopy $origem $Destino /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
-if ($LASTEXITCODE -ge 8) { throw 'Falha ao copiar os arquivos.' }
+# Sobras de instalações anteriores (arquivos que estavam em uso e foram renomeados)
+Get-ChildItem $Destino -Recurse -Filter '*.antigo' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+# /R e /W: com arquivo em uso, o padrão do robocopy é tentar 1 milhão de vezes (trava a instalação)
+$copiar = { robocopy $origem $Destino /MIR /XF *.antigo /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null; $LASTEXITCODE }
+if ((& $copiar) -ge 8) {
+    # Outro programa (ex: um VS Code aberto pelo Argos em versões antigas) carregou uma DLL daqui.
+    # Arquivo em uso não pode ser sobrescrito, mas pode ser renomeado: o novo entra no lugar.
+    $lista = robocopy $origem $Destino /MIR /XF *.antigo /L /NJH /NJS /NDL /NC /NS /FP /NP
+    foreach ($linha in $lista) {
+        $arq = $linha.Trim()
+        if (-not $arq -or -not $arq.StartsWith($origem, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        $alvo = Join-Path $Destino $arq.Substring($origem.Length).TrimStart('\')
+        if (Test-Path $alvo -PathType Leaf) { Rename-Item $alvo "$(Split-Path $alvo -Leaf).antigo" -Force -ErrorAction SilentlyContinue }
+    }
+    if ((& $copiar) -ge 8) { throw 'Falha ao copiar os arquivos (algum arquivo do Argos ainda está em uso? Feche o app e tente de novo).' }
+}
 # O desinstalador fica junto do app, para o "Desinstalar" das Configurações do Windows
 Copy-Item (Join-Path $PSScriptRoot 'desinstalar.ps1') $Destino -Force
 Write-Host '  arquivos copiados' -ForegroundColor Green

@@ -52,6 +52,7 @@ const IC = (() => {
     copiar: s('<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5v-3a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 5.5V14A1.5 1.5 0 0 0 6 15.5h2.5"/>'),
     busca: s('<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.3-4.3"/>'),
     chevron: s('<path d="m9 6 6 6-6 6"/>'),
+    mais: s('<path d="M12 5v14M5 12h14"/>'),
     atualizar: s('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'),
     ok: s('<circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.5 2.5 4.5-5"/>'),
     celular: s('<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>'),
@@ -88,7 +89,8 @@ function criarMock(dados) {
       logs: async (t, a, desde) => desde > 0 ? { texto: "", fim: desde, vivo: true } :
         { texto: "\x1b[2m=== argos: npm run dev ===\x1b[0m\n\n  \x1b[32m\x1b[1mVITE\x1b[0m \x1b[32mv5.4.2\x1b[0m  ready in \x1b[1m312\x1b[0m ms\n\n  \x1b[32m➜\x1b[0m  \x1b[1mLocal\x1b[0m:   \x1b[36mhttp://localhost:\x1b[1m5173\x1b[0m\x1b[36m/\x1b[0m\n", fim: 200, vivo: true },
       maximizar: async () => false,
-      git_branches: async () => ({ atual: "main", locais: ["main", "feature/login"] }),
+      git_branches: async () => ({ atual: "main", locais: ["main", "feature/login"],
+        remotas: [{ nome: "feature/pagamento", remoto: "origin", ref: "origin/feature/pagamento" }, { nome: "fix/agenda", remoto: "origin", ref: "origin/fix/agenda" }] }),
       ambiente: async () => [{ sub: "", pasta: "x", arquivos: [{ nome: ".env", caminho: "x\\.env", chaves: 4 }],
         exemplo: { nome: ".env.example" }, faltando: ["STRIPE_KEY", "SMTP_HOST"], sem_env: false },
         { sub: "backend", pasta: "x\\backend", arquivos: [], exemplo: { nome: ".env.example" }, faltando: ["DATABASE_URL"], sem_env: true }],
@@ -404,7 +406,7 @@ let assinaturaAtivos = "";
 function etiquetasProjeto(p) {
   const partes = [];
   if (p.git) {
-    partes.push(`<span class="git">${IC.git}${esc(p.git.branch)}</span>`);
+    partes.push(`<button class="git" ${attr({ acao: "branches", projeto: p.nome })} title="Trocar de branch">${IC.git}${esc(p.git.branch)}</button>`);
     if (p.git.alteracoes) partes.push(`<span class="etq laranja" title="Arquivos alterados e não commitados">${plural(p.git.alteracoes, "alteração", "alterações")}</span>`);
     if (p.git.a_enviar) partes.push(`<span class="etq azul" title="Commits que ainda não foram para o GitHub (git push)">${p.git.a_enviar} a enviar</span>`);
     if (p.git.a_receber) partes.push(`<span class="etq" title="Commits no servidor que você ainda não puxou (git pull)">${p.git.a_receber} a receber</span>`);
@@ -565,9 +567,10 @@ function renderExtras(p) {
 
   if (p.git && x.branches.locais.length) {
     const g = p.git;
-    const opcoes = x.branches.locais.map((b) => `<option ${b === x.branches.atual ? "selected" : ""}>${esc(b)}</option>`).join("");
+    const outras = x.branches.locais.length - 1 + (x.branches.remotas || []).length;
     blocos.push(`<div class="extra"><div class="extra-titulo">${IC.git}Git</div><div class="lin">
-      <select class="campo seletor" data-git-branch="${esc(p.nome)}" title="Trocar de branch">${opcoes}</select>
+      <button class="campo seletor botao-branch" ${attr({ acao: "branches", projeto: p.nome })}
+        title="Trocar de branch${outras ? ` (${outras} outra${outras > 1 ? "s" : ""})` : ""}">${IC.git}<span>${esc(x.branches.atual || "(sem branch)")}</span>${IC.chevron}</button>
       <span class="linha-sub" style="flex:1">${g.alteracoes ? plural(g.alteracoes, "alteração", "alterações") + " não commitada(s)" : "sem alterações"}</span>
       <button class="bt texto" ${attr({ acao: "git", projeto: p.nome, op: "fetch" })} title="Buscar novidades do servidor">Fetch</button>
       <button class="bt ${g.a_receber ? "azul" : ""}" ${attr({ acao: "git", projeto: p.nome, op: "pull" })}>Pull${g.a_receber ? ` (${g.a_receber})` : ""}</button>
@@ -847,6 +850,79 @@ function modal(html, aoAbrir) {
   });
 }
 
+// Seletor de branch: locais, as que só existem no servidor e criar uma nova
+async function abrirBranches(nome) {
+  let b = await api.git_branches(nome);
+  let filtro = "", sel = 0, ocupado = false;
+  await modal(`<div class="folha branches">
+    <h3>Branch de ${esc(nome)}</h3>
+    <input class="campo" placeholder="Buscar ou digitar o nome de uma branch nova" data-foco spellcheck="false">
+    <div class="lista-branches"></div>
+    <div class="rodape">
+      <button class="bt texto" id="br-fetch" title="git fetch: traz as branches novas do servidor" style="margin-right:auto">Buscar no servidor</button>
+      <button class="bt" data-resp="nao">Fechar</button>
+    </div></div>`, (m, fechar) => {
+    const input = m.querySelector("input"), lista = m.querySelector(".lista-branches");
+    const itens = () => {
+      const f = filtro.toLowerCase();
+      const casa = (n) => !f || n.toLowerCase().includes(f);
+      const saida = b.locais.filter(casa).map((n) => ({ grupo: "Neste computador", nome: n, op: "checkout", arg: n, atual: n === b.atual }));
+      saida.push(...(b.remotas || []).filter((r) => casa(r.nome))
+        .map((r) => ({ grupo: "Só no servidor", nome: r.nome, op: "checkout_remota", arg: r.ref, extra: r.remoto })));
+      const exato = b.locais.includes(filtro.trim()) || (b.remotas || []).some((r) => r.nome === filtro.trim());
+      if (filtro.trim() && !exato) saida.push({ grupo: "Nova", nome: filtro.trim(), op: "criar", arg: filtro.trim(), nova: true });
+      return saida;
+    };
+    const desenhar = () => {
+      const vis = itens();
+      sel = Math.min(sel, Math.max(vis.length - 1, 0));
+      let grupo = "";
+      lista.innerHTML = vis.length ? vis.map((it, n) => {
+        const cab = it.grupo !== grupo ? `<div class="branch-grupo">${esc((grupo = it.grupo))}</div>` : "";
+        return `${cab}<button class="branch-item ${n === sel ? "sel" : ""} ${it.atual ? "atual" : ""}" data-n="${n}" ${it.atual ? "disabled" : ""}>
+          ${it.nova ? IC.mais : IC.git}<span class="branch-nome">${it.nova ? `Criar <b>${esc(it.nome)}</b> a partir de ${esc(b.atual)}` : esc(it.nome)}</span>
+          ${it.atual ? `<span class="etq verde">atual</span>` : it.extra ? `<span class="etq">baixar de ${esc(it.extra)}</span>` : ""}
+        </button>`;
+      }).join("") : `<div class="linha-sub" style="padding:10px 4px">Nenhuma branch com esse nome.</div>`;
+      lista.querySelector(".sel")?.scrollIntoView({ block: "nearest" });
+    };
+    const escolher = async (it) => {
+      if (!it || it.atual || ocupado) return;
+      ocupado = true;
+      lista.innerHTML = `<div class="extra-carregando"><span class="girando"></span></div>`;
+      const r = await api.git(nome, it.op, it.arg);
+      fechar(null);
+      // Projeto rodando: o código da outra branch só vale depois de reiniciar (Vite e afins recarregam sozinhos)
+      if (r.ok && r.rodando) {
+        avisar(r.msg, false, { texto: "Reiniciar", acao: async () => resultado(await api.reiniciar_projeto(nome)) });
+      } else resultado(r);
+      delete extrasCache[nome];
+      renderProjetos(true);
+    };
+    // A seleção começa no primeiro item que não é a branch atual
+    const primeiro = () => Math.max(itens().findIndex((it) => !it.atual), 0);
+    input.addEventListener("input", () => { filtro = input.value; sel = primeiro(); desenhar(); });
+    input.addEventListener("keydown", (e) => {
+      const vis = itens();
+      // As setas pulam a branch atual, que não dá para escolher
+      const andar = (passo) => { let n = sel + passo; while (vis[n]?.atual) n += passo; if (vis[n]) sel = n; desenhar(); };
+      if (e.key === "ArrowDown") { e.preventDefault(); andar(1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); andar(-1); }
+      else if (e.key === "Enter") { e.preventDefault(); escolher(vis[sel]); }
+    });
+    lista.addEventListener("click", (e) => { const el = e.target.closest(".branch-item"); if (el) escolher(itens()[+el.dataset.n]); });
+    m.querySelector("#br-fetch").addEventListener("click", async (e) => {
+      const bt = e.currentTarget;
+      const r = await comCarregando(bt, () => api.git(nome, "fetch"));
+      if (!r.ok) return avisar(r.msg, true);
+      b = await api.git_branches(nome);
+      desenhar();
+    });
+    sel = primeiro();
+    desenhar();
+  });
+}
+
 // Alerta compacto no estilo do macOS: ícone, título, texto, botões empilhados
 function confirmar(titulo, texto, botao = "Confirmar", perigo = true) {
   return modal(`<div class="dialogo">
@@ -1076,6 +1152,7 @@ const ACOES = {
     resultado(r);
     if (r.ok) { delete extrasCache[d.projeto]; renderProjetos(true); }
   },
+  branches: (d) => abrirBranches(d.projeto),
   "editar-env": async (d) => {
     const r = await api.ler_env(d.caminho);
     if (!r.ok) return avisar(r.msg, true);
@@ -1368,14 +1445,6 @@ document.addEventListener("click", (ev) => {
 // Chaves (switch) disparam a ação ao mudar
 document.addEventListener("change", async (ev) => {
   const el = ev.target;
-  if (el.dataset.gitBranch) {
-    const nome = el.dataset.gitBranch;
-    const r = await api.git(nome, "checkout", el.value);
-    resultado(r);
-    delete extrasCache[nome];
-    renderProjetos(true);
-    return;
-  }
   if (el.tagName === "INPUT" && el.dataset.acao && ACOES[el.dataset.acao]) ACOES[el.dataset.acao](el.dataset, null);
 });
 

@@ -9,7 +9,7 @@ import subprocess
 
 import psutil
 
-from argos.plataforma import NOMES_VMMEM, SEM_JANELA, listar_processos
+from argos.plataforma import NOMES_VMMEM, SEM_JANELA, ambiente_externo, listar_processos
 
 
 def instalado() -> bool:
@@ -17,9 +17,10 @@ def instalado() -> bool:
 
 
 def _docker(*args: str, timeout: float = 15, cwd: str | None = None) -> subprocess.CompletedProcess:
+    # `docker desktop start` abre o Docker Desktop, que fica rodando: não pode herdar o PATH do Argos
     return subprocess.run(
         ["docker", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=timeout, cwd=cwd, creationflags=SEM_JANELA,
+        timeout=timeout, cwd=cwd, creationflags=SEM_JANELA, env=ambiente_externo(),
     )
 
 

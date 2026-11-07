@@ -17,7 +17,7 @@ import psutil
 from argos.config import Config
 from argos.core import docker, portas, registro
 from argos.core.coleta import Fotografia, rotulo_comando
-from argos.plataforma import SEM_JANELA, encerrar_arvore
+from argos.plataforma import SEM_JANELA, ambiente_externo, encerrar_arvore
 
 
 @dataclass
@@ -392,7 +392,7 @@ def iniciar_comando(cfg: Config, projeto: dict, comando: dict, ignorar_conflito:
         return Resultado(ok, "Containers iniciados." if ok else texto[-400:])
 
     if comando["tipo"] == "godot":
-        subprocess.Popen(comando["cmd"], cwd=pasta, shell=True, creationflags=SEM_JANELA)
+        subprocess.Popen(comando["cmd"], cwd=pasta, shell=True, creationflags=SEM_JANELA, env=ambiente_externo())
         preferencias.registrar_uso(projeto["nome"], comando["chave"])
         return Resultado(True, "Abrindo no Godot...")
 

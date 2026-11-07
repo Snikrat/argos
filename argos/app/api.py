@@ -334,16 +334,24 @@ class Api:
     def git_branches(self, nome: str) -> dict:
         from argos.core import git
         p = projetos.buscar(self._cfg, nome)
-        return git.branches(p["pasta"]) if p else {"atual": "", "locais": []}
+        return git.branches(p["pasta"]) if p else {"atual": "", "locais": [], "remotas": []}
 
     def git(self, nome: str, op: str, arg: str = "") -> dict:
         from argos.core import git
         p = projetos.buscar(self._cfg, nome)
         if not p:
             return {"ok": False, "msg": "Projeto não encontrado."}
-        f = {"fetch": git.fetch, "pull": git.pull, "push": git.push}.get(op)
-        ok, msg = git.checkout(p["pasta"], arg) if op == "checkout" else f(p["pasta"]) if f else (False, "?")
-        return {"ok": ok, "msg": f"{p['nome']}: {msg}"}
+        com_arg = {"checkout": git.checkout, "checkout_remota": git.checkout_remota, "criar": git.criar}
+        sem_arg = {"fetch": git.fetch, "pull": git.pull, "push": git.push}
+        if op in com_arg:
+            ok, msg = com_arg[op](p["pasta"], arg)
+        elif op in sem_arg:
+            ok, msg = sem_arg[op](p["pasta"])
+        else:
+            ok, msg = False, "Operação desconhecida."
+        # Com o projeto rodando, o código da outra branch só entra depois de reiniciar
+        rodando = op in com_arg and ok and any(a["nome"].lower() == p["nome"].lower() for a in (self._monitor.estado or {}).get("ativos", []))
+        return {"ok": ok, "msg": f"{p['nome']}: {msg}", "rodando": rodando}
 
     # --- testes ----------------------------------------------------------
 

@@ -48,3 +48,13 @@ def test_env_dos_projetos_sem_restos_do_app():
     from argos.core.registro import _limpar_env
     env = _limpar_env({"_PYI_ARCHIVE_FILE": "x", "Path": f"C:\\Windows;{PASTA_ANTIGA}\\app;{PASTA_DADOS}\\app;C:\\node", "A": "1"})
     assert env == {"Path": "C:\\Windows;C:\\node", "A": "1"}
+
+
+def test_programas_abertos_pelo_argos_nao_herdam_o_path_do_app(monkeypatch):
+    from argos.config import PASTA_DADOS
+    from argos.plataforma import ambiente_externo
+    monkeypatch.setenv("PATH", f"C:\\Windows;{PASTA_DADOS}\\app\\_internal")
+    monkeypatch.setenv("_PYI_APPLICATION_HOME_DIR", "x")
+    env = ambiente_externo()
+    caminho = next(v for k, v in env.items() if k.upper() == "PATH")
+    assert caminho == "C:\\Windows" and not any(k.upper().startswith("_PYI") for k in env)

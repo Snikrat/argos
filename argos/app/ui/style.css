@@ -556,3 +556,24 @@ kbd { font: 500 10.5px var(--fonte); color: var(--ter); border: 1px solid var(--
 }
 .cmd-oculto svg { width: 11px; height: 11px; color: var(--azul); }
 .cmd-oculto:hover { color: var(--texto); text-decoration: none; }
+
+/* --- branches ------------------------------------------------------------- */
+
+button.git { cursor: pointer; border-radius: 4px; padding: 0 3px; margin: 0 -3px; color: inherit; }
+button.git:hover { background: var(--hover); color: var(--texto); }
+.botao-branch { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; max-width: 260px; cursor: pointer; font: 12px var(--mono); }
+.botao-branch span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.botao-branch svg { width: 12px; height: 12px; flex: none; color: var(--sec); }
+.botao-branch svg:last-child { transform: rotate(90deg); }
+.folha.branches { width: 480px; display: flex; flex-direction: column; gap: 10px; }
+.lista-branches { max-height: 320px; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+.branch-grupo { font-size: 11px; font-weight: 600; color: var(--sec); padding: 8px 8px 4px; }
+.branch-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border-radius: 7px; text-align: left; cursor: pointer; }
+.branch-item svg { width: 13px; height: 13px; flex: none; color: var(--sec); }
+.branch-item .branch-nome { flex: 1; min-width: 0; font: 12.5px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.branch-item .branch-nome b { font-weight: 600; }
+.branch-item:hover { background: var(--hover); }
+.branch-item.sel { background: var(--azul); color: #fff; }
+.branch-item.sel svg, .branch-item.sel .etq { color: rgba(255, 255, 255, 0.85); }
+.branch-item.atual { cursor: default; }
+.branch-item.atual:hover { background: none; }

@@ -89,7 +89,7 @@ Clicar em um card abre a página do projeto:
 - Outro comando: roda qualquer comando na pasta escolhida. Ele fica na lista como recente.
 - Apagar e restaurar: o X ao lado de um comando o tira da lista sem mexer nos arquivos do projeto. Os apagados aparecem riscados e voltam com um clique.
 - Porta: clique no número da porta para escolher outra.
-- Git: troca de branch, Fetch, Pull e Push.
+- Git: Fetch, Pull, Push e troca de branch. Clicar na branch (no card, no topo da página ou na seção Git) abre um seletor com busca, que lista as branches locais e as que só existem no servidor, e cria uma branch nova a partir da atual. Escolher uma branch do servidor baixa a branch e a deixa ligada à remota. Se o projeto estiver rodando, o aviso oferece reiniciá-lo.
 - Variáveis de ambiente: abre o `.env` para editar e aponta o que falta em relação ao `.env.example`, com opção de completar.
 - Testes: detecta e roda os testes do projeto, com o resultado e o log.
 - Dependências: mostra o espaço ocupado por `node_modules` e `.venv`, com opção de apagar.
