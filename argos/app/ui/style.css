@@ -577,3 +577,39 @@ button.git:hover { background: var(--hover); color: var(--texto); }
 .branch-item.sel svg, .branch-item.sel .etq { color: rgba(255, 255, 255, 0.85); }
 .branch-item.atual { cursor: default; }
 .branch-item.atual:hover { background: none; }
+
+/* --- logs por serviço e lado a lado ----------------------------------------- */
+
+.logs { flex: 1; display: flex; min-height: 0; }
+.logs > .log { min-width: 0; }
+.log2-caixa { flex: 1; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid rgba(255, 255, 255, 0.12); }
+.log2-caixa[hidden] { display: none; }
+.log2-titulo { font: 600 11.5px var(--mono); color: #a1a1aa; background: var(--log-fundo); padding: 8px 16px 0; }
+.inspetor.dividido { width: min(1280px, calc(100vw - 120px)); }
+.log-servicos { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--sep); }
+.log-servicos[hidden] { display: none; }
+.servico-log { display: inline-flex; align-items: center; border-radius: 7px; background: var(--campo); }
+.servico-log button { height: 24px; padding: 0 9px; font: 11.5px var(--mono); color: var(--sec); cursor: pointer; border-radius: 7px; }
+.servico-log button:hover { color: var(--texto); }
+.servico-log.ativo { background: var(--azul); }
+.servico-log.ativo button { color: #fff; cursor: default; }
+.servico-log .dividir { padding: 0 6px 0 2px; display: inline-flex; align-items: center; }
+.servico-log .dividir svg { width: 13px; height: 13px; }
+.servico-log.lado { box-shadow: 0 0 0 1px var(--azul); }
+.servico-log.lado .dividir { color: var(--azul); }
+
+/* --- sessões e perfis --------------------------------------------------------- */
+
+.folha.sessoes { width: 520px; display: flex; flex-direction: column; gap: 12px; }
+.folha.sessoes p { margin: 0; color: var(--sec); font-size: 12.5px; }
+.lista-sessoes { max-height: 300px; overflow-y: auto; }
+.sessao-item { display: flex; align-items: center; gap: 8px; padding: 9px 2px; }
+.sessao-item + .sessao-item { border-top: 1px solid var(--sep); }
+
+/* --- histórico da semana ------------------------------------------------------ */
+
+.semana { display: flex; align-items: flex-end; gap: 6px; height: 44px; }
+.semana .dia { width: 18px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px; }
+.semana .dia i { display: block; width: 100%; border-radius: 3px; background: var(--azul); min-height: 2px; opacity: .9; }
+.semana .dia i[style*="height:0%"] { background: var(--campo); }
+.semana .dia span { font-size: 9.5px; color: var(--ter); line-height: 1; }

@@ -86,9 +86,15 @@ class Monitor:
         self._inicio = time.time()
         self._git_receber: dict[str, int] = {}
         self.atualizacao: dict | None = None
+        self._fechou_em = time.time()
 
     def iniciar(self) -> None:
+        # O que ficou sem "fim" terminou com o app fechado: a melhor estimativa de quando
+        # é a última vez que o histórico foi gravado
+        self._fechou_em = historico.ultima_escrita()
         historico.podar()
+        self._vistos = historico.abertos()
+        registro.limpar_logs_antigos()
         threading.Thread(target=self._laco, daemon=True, name="monitor").start()
         threading.Thread(target=self._laco_saude, daemon=True, name="saude").start()
         threading.Thread(target=self._laco_git, daemon=True, name="git-fetch").start()
@@ -126,6 +132,7 @@ class Monitor:
                 self._ociosos(est)
                 self._historico(est)
                 self._avisos(est)
+                self._esquecer_mortos(est, regs)
                 for u in est["unidades"]:
                     if u["gerenciado"] in regs:
                         u["auto"] = bool(regs[u["gerenciado"]].get("auto"))
@@ -141,7 +148,11 @@ class Monitor:
             except Exception:
                 log.exception("falha na coleta")
             self._primeira = False
-            self._acordar.wait(max(1, self.cfg.intervalo))
+            try:
+                espera = max(1.0, float(self.cfg.intervalo))
+            except (TypeError, ValueError):
+                espera = 3.0
+            self._acordar.wait(espera)
             self._acordar.clear()
 
     def _laco_saude(self) -> None:
@@ -230,6 +241,7 @@ class Monitor:
                 serie.append(u["ram_mb"])
             u["ram_hist"] = list(serie)
             u["vazando"] = vazando(u["ram_hist"], agora - u["inicio"])
+            self._limite_memoria(u, chave)
             if u["vazando"] and u["categoria"] != "ferramenta" and f"vaz:{chave}" not in self._avisados:
                 self._avisados.add(f"vaz:{chave}")
                 self.emitir("memoria", "Memória só subindo",
@@ -239,6 +251,23 @@ class Monitor:
             if chave not in vivos:
                 del self._ram[chave]
 
+    def _limite_memoria(self, u: dict, chave: str) -> None:
+        limite = self.cfg.limite_ram_mb
+        if not limite or u["categoria"] == "ferramenta" or u["ram_mb"] <= limite or f"ram:{chave}" in self._avisados:
+            return
+        self._avisados.add(f"ram:{chave}")
+        acao = ({"rotulo": "Reiniciar", "tipo": "reiniciar", "pid": u["pid"], "ger": u["gerenciado"] or ""})
+        self.emitir("memoria", "Limite de memória",
+                    f"{u['nome']} ({u['projeto'] or 'sem projeto'}) passou de {limite} MB: está usando {u['ram_mb']} MB.",
+                    nivel="aviso", windows=True, acao=acao)
+
+    def _esquecer_mortos(self, est: dict, regs: dict[str, dict]) -> None:
+        """Os conjuntos de "já avisei" cresciam para sempre: guarda só o que ainda roda."""
+        vivas = {historico.chave(u) for u in est["unidades"]}
+        self._avisados = {a for a in self._avisados
+                          if a.startswith("ferr:") or a.split(":", 1)[1] in vivas}
+        self._uso = {k: v for k, v in self._uso.items() if k in vivas}
+        self._prontos = {p for p in self._prontos if p.split(":", 1)[0] in regs}
     # --- servidores esquecidos (sem uso) -------------------------------------
 
     def _ociosos(self, est: dict) -> None:
@@ -277,7 +306,7 @@ class Monitor:
                     for p in projetos.listar(self.cfg, com_git=False):
                         if not p["tem_git"]:
                             continue
-                        git.fetch(p["pasta"])
+                        git.fetch(p["pasta"], podar=False)  # automático: não apaga referências
                         info = projetos.git_info(p["pasta"])
                         if not info:
                             continue
@@ -318,7 +347,7 @@ class Monitor:
                 historico.registrar("inicio", u, quando=u["inicio"])
         for k, u in self._vistos.items():
             if k not in atuais:
-                historico.registrar("fim", u)
+                historico.registrar("fim", u, quando=self._fechou_em if self._primeira else None)
         self._vistos = atuais
 
     def _avisos(self, est: dict) -> None:

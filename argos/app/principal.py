@@ -6,6 +6,7 @@ import ctypes
 import logging
 import sys
 import threading
+import time
 from pathlib import Path
 
 from argos import config
@@ -23,8 +24,18 @@ def _configurar_log() -> None:
 
 def _ja_rodando() -> bool:
     k32 = ctypes.windll.kernel32
-    _configurar_log.mutex = k32.CreateMutexW(None, False, MUTEX)  # mantém o handle vivo
-    if k32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+    k32.CreateMutexW.restype = ctypes.c_void_p
+    k32.CloseHandle.argtypes = [ctypes.c_void_p]
+    # "Reiniciar o Argos": a instância nova espera a antiga terminar de fechar
+    tentativas = 60 if "--reinicio" in sys.argv else 1
+    for n in range(tentativas):
+        _configurar_log.mutex = k32.CreateMutexW(None, False, MUTEX)  # mantém o handle vivo
+        existe = k32.GetLastError() == 183  # ERROR_ALREADY_EXISTS
+        if not existe or n == tentativas - 1:
+            break
+        k32.CloseHandle(_configurar_log.mutex)
+        time.sleep(0.25)
+    if existe:
         ev = k32.OpenEventW(0x0002, False, EVENTO_MOSTRAR)  # EVENT_MODIFY_STATE
         if ev:
             k32.SetEvent(ev)

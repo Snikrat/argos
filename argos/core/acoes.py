@@ -113,15 +113,28 @@ def estado(cfg: Config, com_docker: bool = True) -> dict:
     }
 
 
-# --- encerrar ---------------------------------------------------------------
+def pid_de_dev(cfg: Config, pid: int) -> int | None:
+    """PID raiz do processo de desenvolvimento a que `pid` pertence; None se não for um.
 
+    Usado onde quem pede não é o usuário olhando a tela (MCP): impede encerrar um
+    programa qualquer da máquina pelo número.
+    """
+    for u in fotografar(cfg).unidades():
+        if u["categoria"] != "ferramenta" and (pid == u["pid"] or pid in u["pids"]):
+            return u["pid"]
+    return None
+
+
+# --- encerrar ---------------------------------------------------------------
 def encerrar(pid: int) -> Resultado:
     try:
         nome = psutil.Process(pid).name()
     except psutil.NoSuchProcess:
         return Resultado(False, f"O processo {pid} não existe mais.")
+    # Os iniciados pelo Argos têm console próprio: dá para pedir que fechem antes de forçar
+    gentil = pid in registro.ativos_por_pid()
     registro.marcar_parada(pid)
-    ok, negado = encerrar_arvore(pid)
+    ok, negado = encerrar_arvore(pid, gentil=gentil)
     if ok:
         return Resultado(True, f"Encerrado: {nome} (PID {pid})")
     return Resultado(False, f"Não consegui encerrar {nome} (PID {pid}).", admin=negado)
@@ -192,8 +205,13 @@ def reiniciar_pid(cfg: Config, pid: int) -> Resultado:
     if not ok:
         return Resultado(False, f"Não consegui encerrar {nome}.", admin=negado)
     _esperar_porta_livre(portas)
-    registro.iniciar(subprocess.list2cmdline(args), cwd, env, shell=False, nome=nome,
-                     projeto=proj[0] if proj else "")
+    comando = subprocess.list2cmdline(args)
+    try:
+        registro.iniciar(comando, cwd, env, shell=False, nome=nome, projeto=proj[0] if proj else "")
+    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+        # O original já foi encerrado: sem isto o processo sumia sem explicação
+        return Resultado(False, f"Encerrei {nome}, mas não consegui iniciar de novo ({e}). "
+                                f"Para subir à mão, rode em {cwd}: {comando}", extra={"cmd": comando, "cwd": cwd})
     return Resultado(True, f"Reiniciado: {nome} (agora com logs no Argos)")
 
 
@@ -325,6 +343,38 @@ def subir_projeto(cfg: Config, projeto: dict, progresso=lambda msg: None) -> Res
         servicos = proj.carregar_grupo(projeto["pasta"])
     except proj.ErroGrupo as e:
         return Resultado(False, str(e))
+    # Duas subidas ao mesmo tempo (dois cliques, ou app e terminal) iniciariam tudo em dobro
+    marca = _marca_subida(projeto["nome"])
+    if marca is None:
+        return Resultado(False, f"{projeto['nome']} já está subindo. Espere terminar.")
+    try:
+        return _subir_servicos(cfg, projeto, servicos, progresso)
+    finally:
+        marca.unlink(missing_ok=True)
+
+
+def _marca_subida(nome: str) -> Path | None:
+    """Arquivo que marca "este projeto está subindo". None se outra subida está em andamento."""
+    from argos.config import PASTA_DADOS
+
+    PASTA_DADOS.mkdir(parents=True, exist_ok=True)
+    marca = PASTA_DADOS / f"subindo-{registro._slug(nome.lower())}.lock"
+    for _ in range(2):
+        try:
+            os.close(os.open(marca, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return marca
+        except FileExistsError:
+            try:
+                if time.time() - marca.stat().st_mtime < 20 * 60:
+                    return None
+                marca.unlink()  # sobrou de uma subida que foi interrompida
+            except OSError:
+                return None
+    return None
+
+
+def _subir_servicos(cfg: Config, projeto: dict, servicos: list[dict], progresso) -> Resultado:
+    from argos.core import projetos as proj
 
     existentes = {e["nome"]: e for e in registro.listar() if e.get("projeto") == projeto["nome"]}
     for s in servicos:

@@ -1,4 +1,4 @@
-﻿# Gera dist\argos-<versão>.zip para instalar em outra máquina (sem Python nem uv).
+# Gera dist\argos-<versão>.zip para instalar em outra máquina (sem Python nem uv).
 $ErrorActionPreference = 'Stop'
 $raiz = Split-Path $PSScriptRoot
 $compilado = & (Join-Path $PSScriptRoot 'compilar.ps1') | Select-Object -Last 1
@@ -17,4 +17,6 @@ Copy-Item (Join-Path $PSScriptRoot 'portatil\*') $montagem
 New-Item -ItemType Directory -Force (Split-Path $zip) | Out-Null
 Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path $montagem -DestinationPath $zip -CompressionLevel Optimal
+# Hash ao lado do zip: o Argos confere antes de instalar uma atualização vinda desta pasta
+(Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() + "  argos-$versao.zip" | Set-Content "$zip.sha256" -Encoding ascii
 Write-Host ('Pronto: {0} ({1:N0} MB)' -f $zip, ((Get-Item $zip).Length / 1MB)) -ForegroundColor Green

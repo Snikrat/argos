@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -10,6 +9,7 @@ import time
 from pathlib import Path
 
 from argos.config import PASTA_DADOS, PASTA_LOGS
+from argos.core import arquivo
 from argos.plataforma import SEM_JANELA
 
 ARQUIVO = PASTA_DADOS / "testes.json"
@@ -52,10 +52,7 @@ def detectar(pasta_projeto: str) -> list[dict]:
 
 
 def _ler() -> dict:
-    try:
-        return json.loads(ARQUIVO.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    return arquivo.ler(ARQUIVO, {})
 
 
 def resultados(projeto: str) -> dict:
@@ -102,8 +99,8 @@ def rodar(projeto: str, teste: dict) -> dict:
     resultado = {"ok": codigo == 0, "codigo": codigo, "cmd": teste["cmd"], "sub": teste["sub"],
                  "quando": time.time(), "duracao": time.time() - inicio, "log": str(log),
                  "resumo": "tempo esgotado" if codigo == -1 else _resumo_saida(texto)}
-    dados = _ler()
-    dados.setdefault(projeto.lower(), {})[teste["chave"]] = resultado
-    ARQUIVO.parent.mkdir(parents=True, exist_ok=True)
-    ARQUIVO.write_text(json.dumps(dados, ensure_ascii=False, indent=1), encoding="utf-8")
+    with arquivo.trava(ARQUIVO):
+        dados = _ler()
+        dados.setdefault(projeto.lower(), {})[teste["chave"]] = resultado
+        arquivo.gravar(ARQUIVO, dados)
     return resultado

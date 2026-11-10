@@ -45,6 +45,34 @@ class Config:
     git_fetch_minutos: int = 15
     # Pasta onde procurar versões novas do Argos (vazio = projetos\argos\dist)
     pasta_atualizacao: str = ""
+    # Procurar versões novas também nas Releases do GitHub (uma consulta a cada 6 horas)
+    procurar_atualizacao: bool = True
+    repo_atualizacao: str = "Snikrat/argos"
+    # Avisar quando um processo passar de N MB de memória (0 desliga)
+    limite_ram_mb: int = 0
+
+
+def _ajustar(nome: str, valor, padrao):
+    """Valor do config.json no tipo esperado, ou o padrão se não der para aproveitar.
+
+    O arquivo pode ser editado à mão: um "intervalo": "3s" derrubava o monitor.
+    """
+    try:
+        if isinstance(padrao, bool):
+            return valor if isinstance(valor, bool) else padrao
+        if isinstance(padrao, (int, float)):
+            if isinstance(valor, bool):
+                return padrao
+            # O tipo vem da anotação: "alerta_horas: float = 4" tem padrão inteiro mas aceita 2.5
+            decimal = Config.__annotations__.get(nome) == "float" or isinstance(padrao, float)
+            numero = float(valor) if decimal else int(float(valor))
+            minimo = {"intervalo": 1, "porta_proxy": 1}.get(nome, 0)
+            return numero if numero >= minimo else padrao
+        if isinstance(padrao, list):
+            return [str(x) for x in valor if str(x).strip()] if isinstance(valor, list) else padrao
+        return str(valor) if isinstance(valor, str) else padrao
+    except (TypeError, ValueError):
+        return padrao
 
 
 # Antes de virar Argos o app se chamava "devs" e guardava tudo em %LOCALAPPDATA%\devs
@@ -105,7 +133,7 @@ def carregar() -> Config:
         dados = json.loads(ARQUIVO_CONFIG.read_text(encoding="utf-8"))
         for k, v in dados.items():
             if hasattr(cfg, k):
-                setattr(cfg, k, v)
+                setattr(cfg, k, _ajustar(k, v, getattr(cfg, k)))
     except FileNotFoundError:
         salvar(cfg)
     except (OSError, ValueError):

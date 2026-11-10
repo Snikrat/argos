@@ -516,20 +516,32 @@ def cmd_sessao(cfg, a) -> int:
     from argos.core import sessoes
 
     if a.acao == "salvar":
-        s = sessoes.salvar(acoes.estado(cfg), a.nome or "manual")
-        (sucesso if s["itens"] else info)(f"Sessão {s['id']} salva com {len(s['itens'])} item(ns)." if s["itens"]
+        s = sessoes.salvar(acoes.estado(cfg), "manual", a.nome or "")
+        rotulo = f"Perfil '{s['nome']}'" if s["nome"] else f"Sessão {s['id']}"
+        (sucesso if s["itens"] else info)(f"{rotulo} salvo com {len(s['itens'])} item(ns)." if s["itens"]
                                           else "Nada rodando para salvar.")
+        return 0
+    if a.acao == "apagar":
+        if not a.nome:
+            erro("Diga o id ou o nome: argos sessao apagar <id|nome>")
+            return 1
+        alvo = next((s for s in sessoes.listar() if a.nome.lower() in (s["id"], s["nome"].lower())), None)
+        if not alvo or not sessoes.apagar(alvo["id"]):
+            erro(f"Sessão '{a.nome}' não encontrada.")
+            return 1
+        sucesso("Sessão apagada.")
         return 0
     lista = sessoes.listar()
     if not lista:
         info("Nenhuma sessão salva. O modo jogo salva uma automaticamente.")
         return 0
     titulo("SESSÕES")
-    tabela([{"id": s["id"], "quando": desde(s["quando"]), "motivo": s["motivo"], "itens": len(s["itens"]),
-             "projetos": ", ".join(sorted({i["projeto"] for i in s["itens"] if i["projeto"]})) or "-",
-             "retomada": "sim" if s.get("retomada") else "", "_cor": "2" if s.get("retomada") else None}
-            for s in lista], ["id", "quando", "motivo", "itens", "projetos", "retomada"])
-    info("argos retomar [id]  ·  argos sessao salvar [nome]")
+    tabela([{"id": s["id"], "perfil": s["nome"] or "-", "quando": desde(s["quando"]), "motivo": s["motivo"],
+             "itens": s["processos"] + s["containers"], "projetos": ", ".join(s["projetos"]) or "-",
+             "estado": "perfil" if s["nome"] else f"{len(s['falhas'])} falha(s)" if s["falhas"] else "retomada" if s["retomada"] else "pendente",
+             "_cor": "2" if s["retomada"] and not s["nome"] else None}
+            for s in lista], ["id", "perfil", "quando", "motivo", "itens", "projetos", "estado"])
+    info("argos retomar [id|perfil]  ·  argos sessao salvar [perfil]  ·  argos sessao apagar <id|perfil>")
     print()
     return 0
 
@@ -601,7 +613,7 @@ def cmd_atualizar(cfg, a) -> int:
     print(f"  Versão {nova['versao']} disponível (instalada: {nova['atual']}).")
     if not confirmar("Atualizar agora?", a.forcar):
         return 1
-    ok, msg = atualizacao.aplicar(nova["zip"])
+    ok, msg = atualizacao.aplicar(nova)
     (sucesso if ok else erro)(msg)
     return 0 if ok else 1
 
@@ -669,8 +681,8 @@ AJUDA = """
   argos docker [limpar]        disco e RAM do Docker; limpar libera espaço
   argos docker ligar|desligar  liga ou desliga o Docker Desktop
   argos modo-jogo              para tudo, salva a sessão e desliga o Docker (--wsl, --sem-lembrar)
-  argos retomar [id]           sobe de novo o que estava rodando (sessão salva)
-  argos sessao [salvar nome]   lista ou salva sessões
+  argos retomar [id|perfil]    sobe de novo o que estava rodando (sessão ou perfil salvo)
+  argos sessao [salvar nome]   lista as sessões; com nome, salva um perfil (apagar <id|nome> remove)
 
   argos tunel <porta>          link público temporário (https://...trycloudflare.com)
   argos testar <projeto>       roda os testes do projeto
@@ -688,6 +700,10 @@ def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["_lancar"]:
         registro.lancar(argv[1])
+        return
+    if argv[:1] == ["_interromper"]:  # processo descartável que manda Ctrl+Break a outro console
+        from argos.plataforma import interromper_console
+        interromper_console(int(argv[1]))
         return
     if argv == ["mcp"]:  # servidor MCP: stdout é só do protocolo
         from argos import mcp
@@ -736,7 +752,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--sem-lembrar", action="store_true")
     novo("retomar", cmd_retomar).add_argument("id", nargs="?")
     s = novo("sessao", cmd_sessao, "sessoes")
-    s.add_argument("acao", nargs="?", choices=["salvar", "listar"], default="listar")
+    s.add_argument("acao", nargs="?", choices=["salvar", "listar", "apagar"], default="listar")
     s.add_argument("nome", nargs="?")
     novo("tunel", cmd_tunel, "túnel").add_argument("porta", type=int, nargs="?")
     novo("testar", cmd_testar, "testes").add_argument("projeto")

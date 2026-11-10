@@ -54,7 +54,14 @@
       <button class="ib" data-acao="abrir" data-tipo="logs" data-alvo="" title="Abrir pasta de logs" id="btn-pasta-logs"></button>
       <button class="ib" data-acao="log-fechar" title="Fechar" id="btn-fechar-log"></button>
     </div>
-    <pre class="log" id="log"></pre>
+    <div class="log-servicos" id="log-servicos" hidden></div>
+    <div class="logs">
+      <pre class="log" id="log"></pre>
+      <div class="log2-caixa" id="log2-caixa" hidden>
+        <div class="log2-titulo" id="log2-titulo"></div>
+        <pre class="log" id="log2"></pre>
+      </div>
+    </div>
   </aside>
 
   <div class="fundo" id="fundo" hidden></div>
@@ -66,6 +73,15 @@
   <div class="redim canto" data-redim="se"></div>
 
   <script src="dica.js"></script>
-  <script src="app.js"></script>
+  <script src="base.js"></script>
+  <script src="rodando.js"></script>
+  <script src="projetos.js"></script>
+  <script src="docker.js"></script>
+  <script src="hoje.js"></script>
+  <script src="logs.js"></script>
+  <script src="dialogos.js"></script>
+  <script src="acoes.js"></script>
+  <script src="paleta.js"></script>
+  <script src="inicio.js"></script>
 </body>
 </html>

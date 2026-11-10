@@ -79,6 +79,10 @@ class Api:
         est = self._monitor.estado or {"unidades": []}
         return historico.do_dia([u for u in est["unidades"] if u["categoria"] != "ferramenta"])
 
+    def historico_semana(self) -> list[dict]:
+        est = self._monitor.estado or {"unidades": []}
+        return historico.da_semana([u for u in est["unidades"] if u["categoria"] != "ferramenta"])
+
     def logs(self, tipo: str, alvo: str, desde: int = -1) -> dict:
         if tipo == "container":
             return {"texto": docker.logs(alvo, 500), "fim": 0, "vivo": True, "substituir": True}
@@ -271,11 +275,21 @@ class Api:
 
         threading.Thread(target=rodar, daemon=True).start()
 
-    def salvar_sessao(self) -> dict:
+    def sessoes(self) -> list[dict]:
         from argos.core import sessoes
-        s = sessoes.salvar(self._monitor.estado or acoes.estado(self._cfg), "manual")
-        return self._pronto({"ok": bool(s["itens"]), "msg": f"Sessão salva com {len(s['itens'])} item(ns)."
+        return sessoes.listar()
+
+    def salvar_sessao(self, nome: str = "") -> dict:
+        from argos.core import sessoes
+        s = sessoes.salvar(self._monitor.estado or acoes.estado(self._cfg), "manual", nome or "")
+        rotulo = f"Perfil '{s['nome']}'" if s["nome"] else "Sessão"
+        return self._pronto({"ok": bool(s["itens"]), "msg": f"{rotulo} salvo com {len(s['itens'])} item(ns)."
                              if s["itens"] else "Nada rodando para salvar."})
+
+    def apagar_sessao(self, id_: str) -> dict:
+        from argos.core import sessoes
+        ok = sessoes.apagar(id_)
+        return self._pronto({"ok": ok, "msg": "Sessão apagada." if ok else "Sessão não encontrada."})
 
     def retomar(self, id_: str | None = None) -> dict:
         from argos.core import sessoes
@@ -425,12 +439,18 @@ class Api:
         nova = atualizacao.disponivel(self._cfg)
         if not nova:
             return {"ok": True, "msg": "Você já está na versão mais nova."}
-        ok, msg = atualizacao.aplicar(nova["zip"])
+        ok, msg = atualizacao.aplicar(nova)
         return {"ok": ok, "msg": msg}
 
     # --- abrir -----------------------------------------------------------
 
     def abrir(self, tipo: str, alvo: str) -> dict:
+        # O alvo vem da página. Abrir "qualquer coisa" com o Windows executaria um .exe:
+        # só endereços http(s) e pastas que existem.
+        if tipo == "url" and not str(alvo).lower().startswith(("http://", "https://")):
+            return {"ok": False, "msg": "Endereço inválido."}
+        if tipo in ("pasta", "vscode", "terminal") and not Path(str(alvo)).is_dir():
+            return {"ok": False, "msg": "Essa pasta não existe mais."}
         try:
             if tipo == "url":
                 abrir_url(alvo)
@@ -448,6 +468,11 @@ class Api:
         return {"ok": True}
 
     def admin(self, args: list[str]) -> dict:
+        # Só as ações que o painel oferece repetir como administrador, com alvos simples
+        args = [str(a) for a in args or []]
+        if not args or args[0] not in ("matar", "porta", "parar", "reiniciar") or len(args) != 2 \
+                or not all(c.isalnum() or c in "._-" for c in args[1]):
+            return {"ok": False, "msg": "Ação não permitida como administrador."}
         ok = executar_como_admin([*args, "-f"])
         return self._pronto({"ok": ok, "msg": "Executando como administrador..." if ok else "Permissão negada."})
 
@@ -468,9 +493,10 @@ class Api:
 
     def salvar_config(self, dados: dict) -> dict:
         for k in ("pastas_projetos", "intervalo", "alerta_horas", "alerta_orfaos", "atalho", "ignorar",
-                  "portas_fixas", "proxy", "ocioso_horas", "git_fetch_minutos"):
+                  "portas_fixas", "proxy", "ocioso_horas", "git_fetch_minutos", "limite_ram_mb",
+                  "procurar_atualizacao"):
             if k in dados:
-                setattr(self._cfg, k, dados[k])
+                setattr(self._cfg, k, config._ajustar(k, dados[k], getattr(self._cfg, k)))
         config.salvar(self._cfg)
         if "inicializacao" in dados:
             self._definir_inicializacao(bool(dados["inicializacao"]))
@@ -531,4 +557,17 @@ class Api:
 
     def sair(self) -> bool:
         self._sair()
+        return True
+
+    def reiniciar_app(self) -> bool:
+        """Abre uma instância nova (que espera esta fechar) e sai. Para valer o atalho e o proxy."""
+        from argos.plataforma import ambiente_externo
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--reinicio"]
+        else:
+            pyw = Path(sys.executable).with_name("pythonw.exe")
+            cmd = [str(pyw if pyw.exists() else sys.executable), "-m", "argos.app.principal", "--reinicio"]
+        subprocess.Popen(cmd, env=ambiente_externo(), close_fds=True,
+                         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+        threading.Timer(0.3, self._sair).start()
         return True

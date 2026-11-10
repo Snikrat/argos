@@ -1,12 +1,12 @@
 """Sessões: guarda o que estava rodando para retomar depois com um clique.
 
 O modo jogo salva uma sessão antes de parar tudo; "Retomar" sobe de novo os
-mesmos processos (mesmo comando, pasta e variáveis) e containers.
+mesmos processos (mesmo comando, pasta e variáveis) e containers. Uma sessão
+salva com nome vira um perfil ("trabalho", "jogo") que fica guardado.
 """
 
 from __future__ import annotations
 
-import json
 import subprocess
 import time
 import uuid
@@ -14,28 +14,33 @@ import uuid
 import psutil
 
 from argos.config import PASTA_DADOS
-from argos.core import docker, registro
+from argos.core import arquivo, docker, registro, segredo
 
 ARQUIVO = PASTA_DADOS / "sessoes.json"
-MANTER = 10
+MANTER = 10  # sessões sem nome guardadas (os perfis, com nome, ficam todos)
 
 
 def _ler() -> list[dict]:
-    try:
-        return json.loads(ARQUIVO.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
+    sessoes = arquivo.ler(ARQUIVO, [])
+    for s in sessoes:
+        s["itens"] = [segredo.ler_de(i) for i in s.get("itens", [])]
+    return sessoes
 
 
 def _gravar(sessoes: list[dict]) -> None:
-    ARQUIVO.parent.mkdir(parents=True, exist_ok=True)
-    tmp = ARQUIVO.with_suffix(".tmp")
-    tmp.write_text(json.dumps(sessoes[:MANTER], ensure_ascii=False), encoding="utf-8")
-    tmp.replace(ARQUIVO)
+    sem_nome = 0
+    manter = []
+    for s in sessoes:
+        if not s.get("nome"):
+            sem_nome += 1
+            if sem_nome > MANTER:
+                continue
+        manter.append({**s, "itens": [segredo.guardar_em(i) for i in s["itens"]]})
+    arquivo.gravar(ARQUIVO, manter, indent=None)
 
 
-def salvar(est: dict, motivo: str = "manual") -> dict:
-    """Fotografa os processos de dev e containers rodando agora."""
+def salvar(est: dict, motivo: str = "manual", nome: str = "") -> dict:
+    """Fotografa os processos de dev e containers rodando agora. Com `nome`, vira um perfil."""
     itens = []
     for u in est["unidades"]:
         if u["categoria"] == "ferramenta":
@@ -53,39 +58,66 @@ def salvar(est: dict, motivo: str = "manual") -> dict:
         except psutil.Error:
             continue
         itens.append({**base, "tipo": "externo", "cmd": subprocess.list2cmdline(args), "cwd": cwd,
-                      "shell": False, "env": env})
+                      "shell": False, "env": segredo.sem_sessao(env)})
     for c in est["docker"]["containers"]:
         if c["estado"] == "running":
             itens.append({"tipo": "container", "id": c["id"], "nome": c["nome"], "projeto": c["projeto"], "portas": []})
 
-    sessao = {"id": uuid.uuid4().hex[:6], "quando": time.time(), "motivo": motivo, "itens": itens, "retomada": False}
+    nome = nome.strip()
+    sessao = {"id": uuid.uuid4().hex[:6], "quando": time.time(), "motivo": motivo, "nome": nome,
+              "itens": itens, "retomada": bool(nome)}  # perfil não fica "pendente" na tela
     if itens:
-        _gravar([sessao] + _ler())
+        with arquivo.trava(ARQUIVO):
+            # Salvar de novo com o mesmo nome substitui o perfil
+            outras = [s for s in _ler() if not nome or s.get("nome", "").lower() != nome.lower()]
+            _gravar([sessao] + outras)
     return sessao
 
 
+def _resumo(s: dict) -> dict:
+    return {"id": s["id"], "quando": s["quando"], "motivo": s["motivo"], "nome": s.get("nome", ""),
+            "retomada": bool(s.get("retomada")), "falhas": s.get("falhas", []),
+            "processos": sum(i["tipo"] != "container" for i in s["itens"]),
+            "containers": sum(i["tipo"] == "container" for i in s["itens"]),
+            "projetos": sorted({i["projeto"] for i in s["itens"] if i["projeto"]})}
+
+
 def listar() -> list[dict]:
-    return [{**s, "itens": [{k: v for k, v in i.items() if k != "env"} for i in s["itens"]]} for s in _ler()]
+    """Sessões e perfis, resumidos (sem comandos nem variáveis)."""
+    return [_resumo(s) for s in _ler()]
 
 
 def pendente() -> dict | None:
-    """Última sessão ainda não retomada (resumida, sem variáveis de ambiente)."""
+    """Última sessão sem nome ainda não retomada por completo."""
     for s in _ler():
-        if not s.get("retomada"):
-            return {"id": s["id"], "quando": s["quando"], "motivo": s["motivo"],
-                    "processos": sum(i["tipo"] != "container" for i in s["itens"]),
-                    "containers": sum(i["tipo"] == "container" for i in s["itens"]),
-                    "projetos": sorted({i["projeto"] for i in s["itens"] if i["projeto"]})}
-        break
+        if s.get("nome"):
+            continue
+        return None if s.get("retomada") else _resumo(s)
     return None
 
 
 def descartar(id_: str) -> None:
-    sessoes = _ler()
-    for s in sessoes:
-        if s["id"] == id_:
-            s["retomada"] = True
-    _gravar(sessoes)
+    with arquivo.trava(ARQUIVO):
+        sessoes = _ler()
+        for s in sessoes:
+            if s["id"] == id_:
+                s["retomada"] = True
+                s.pop("falhas", None)
+        _gravar(sessoes)
+
+
+def apagar(id_: str) -> bool:
+    with arquivo.trava(ARQUIVO):
+        sessoes = _ler()
+        resto = [s for s in sessoes if s["id"] != id_]
+        _gravar(resto)
+    return len(resto) < len(sessoes)
+
+
+def _achar(sessoes: list[dict], alvo: str | None) -> dict | None:
+    if alvo:
+        return next((s for s in sessoes if s["id"] == alvo or s.get("nome", "").lower() == alvo.lower()), None)
+    return next((s for s in sessoes if not s.get("nome") and not s.get("retomada")), None) or next(iter(sessoes), None)
 
 
 def _rodando_agora() -> set[str]:
@@ -99,11 +131,15 @@ def _rodando_agora() -> set[str]:
     return saida
 
 
-def retomar(id_: str | None = None, progresso=lambda msg: None) -> tuple[bool, str]:
-    sessoes = _ler()
-    sessao = next((s for s in sessoes if s["id"] == id_), None) if id_ else next(iter(sessoes), None)
+def retomar(alvo: str | None = None, progresso=lambda msg: None) -> tuple[bool, str]:
+    """Sobe de novo os itens da sessão (por id ou nome do perfil; sem alvo, a pendente).
+
+    Se algum item falhar, a sessão continua pendente com a lista do que falhou:
+    retomar de novo tenta só o que ainda não está rodando.
+    """
+    sessao = _achar(_ler(), alvo)
     if not sessao:
-        return False, "Nenhuma sessão salva."
+        return False, "Nenhuma sessão salva." if not alvo else f"Sessão '{alvo}' não encontrada."
 
     containers = [i for i in sessao["itens"] if i["tipo"] == "container"]
     if containers and docker.instalado() and not docker.ligado():
@@ -120,6 +156,8 @@ def retomar(id_: str | None = None, progresso=lambda msg: None) -> tuple[bool, s
         try:
             if i["tipo"] == "container":
                 ok, _ = docker.iniciar([i["id"]])
+                if not ok:  # o container pode ter sido recriado com outro id
+                    ok, _ = docker.iniciar([i["nome"]])
                 (subiu if ok else falhou).append(i["nome"])
                 continue
             if i["tipo"] == "argos":
@@ -140,7 +178,14 @@ def retomar(id_: str | None = None, progresso=lambda msg: None) -> tuple[bool, s
         except Exception as e:  # um item com problema não impede os outros
             falhou.append(f"{i['nome']} ({e})")
 
-    sessao["retomada"] = True
-    _gravar(sessoes)
-    msg = f"Retomados: {len(subiu)}" + (f" · falharam: {', '.join(falhou)}" if falhou else "")
-    return not falhou, msg
+    with arquivo.trava(ARQUIVO):
+        sessoes = _ler()
+        for s in sessoes:
+            if s["id"] == sessao["id"]:
+                s["falhas"] = falhou
+                if not s.get("nome"):
+                    s["retomada"] = not falhou
+        _gravar(sessoes)
+    if falhou:
+        return False, f"Retomados: {len(subiu)}. Falharam: {', '.join(falhou)}. A sessão continua salva para tentar de novo."
+    return True, f"Retomados: {len(subiu)}" if subiu else "Tudo dessa sessão já estava rodando."

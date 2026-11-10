@@ -51,6 +51,9 @@ ORIGENS = [
     ("explorer", "Windows"), ("services", "serviço"), ("argos-app", "Argos"),
 ]
 
+# Assistentes de código: os servidores MCP que eles abrem são ferramentas, não projetos
+ASSISTENTES = ("Claude", "Codex", "Cursor")
+
 PORTA_EFEMERA = 49152
 
 # Pistas, na linha de comando de quem abriu a porta, de que ela é o site (front) ou uma API
@@ -308,11 +311,20 @@ class Fotografia:
                 break
         return None
 
-    def categoria(self, pid: int, projeto) -> str:
+    def categoria(self, pid: int, projeto, origem: str = "") -> str:
         # Olha também os filhos: um lançador "python -c ..." pode esconder a ferramenta real
         cmd = " ".join(self.cmdline(x) for x in [pid, *self.descendentes(pid)[:6]]).lower()
-        if "mcp" in cmd or re.search(r"\\uv\\(cache|tools)\\|\\_npx\\|\\npm-cache\\|\\\.cache\\", cmd):
+        if re.search(r"\\uv\\(cache|tools)\\|\\_npx\\|\\npm-cache\\|\\\.cache\\", cmd):
             return "ferramenta"
+        if "mcp" in cmd:
+            # Servidor MCP aberto por um assistente é ferramenta dele. Mas um projeto seu pode
+            # ter "mcp" no nome, ou ser um servidor MCP que você está desenvolvendo e rodou
+            # do terminal: aí é projeto. O nome da pasta do projeto, sozinho, não conta.
+            fora_do_nome = "mcp" in (cmd.replace(projeto[1].lower(), "") if projeto else cmd)
+            if not projeto or (fora_do_nome and origem in ASSISTENTES):
+                return "ferramenta"
+            if not fora_do_nome and origem in ASSISTENTES and re.search(r"\\\.venv\\|\\node_modules\\", cmd):
+                return "ferramenta"
         if projeto:
             return "projeto"
         if re.search(r"\\appdata\\|\\\.cache\\|\\program files", cmd):
@@ -325,6 +337,15 @@ class Fotografia:
         grupos: dict[int, list[int]] = defaultdict(list)
         for pid, d in self.procs.items():
             if d["nome"] in RUNTIMES or pid in self.gerenciados:
+                grupos[self.raiz(pid)].append(pid)
+        # Binários compilados (Go, Rust, C#...) não têm nome conhecido: entram quando
+        # escutam numa porta e rodam de dentro de uma pasta de projeto
+        ruido = IGNORAR_PORTAS + DOCKER_PORTAS + [x.lower() for x in self.cfg.ignorar]
+        for pid in list(self.pid_portas):
+            d = self.procs.get(pid)
+            if not d or d["nome"] in RUNTIMES or pid in self.gerenciados or combina(d["nome"], ruido):
+                continue
+            if projeto_da_pasta(self.cwd(pid), self.cfg) or projeto_da_pasta(self.cmdline(pid), self.cfg):
                 grupos[self.raiz(pid)].append(pid)
         # O próprio Argos (e o lançador da venv que o abriu) não aparece
         grupos.pop(self.raiz(os.getpid()), None)
@@ -341,7 +362,7 @@ class Fotografia:
             proj = self.projeto(raiz)
             ger = self.gerenciado_de(raiz)
             origem, orfao = self.origem(raiz)
-            cat = "projeto" if ger else self.categoria(raiz, proj)
+            cat = "projeto" if ger else self.categoria(raiz, proj, origem)
             publica = any(ip not in ("127.0.0.1", "::1") for p in portas for ip in self.porta_ips[p])
             saida.append({
                 "id": f"p{raiz}",

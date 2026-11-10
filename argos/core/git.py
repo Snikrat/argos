@@ -44,8 +44,9 @@ def branches(pasta: str) -> dict:
     return {"atual": atual, "locais": locais, "remotas": remotas}
 
 
-def fetch(pasta: str) -> tuple[bool, str]:
-    ok, saida = _git(pasta, "fetch", "--quiet", "--prune", timeout=45)
+def fetch(pasta: str, podar: bool = True) -> tuple[bool, str]:
+    """podar (--prune) apaga referências de branches removidas no servidor: só a pedido do usuário."""
+    ok, saida = _git(pasta, "fetch", "--quiet", *(["--prune"] if podar else []), timeout=45)
     return ok, "Atualizado." if ok else saida[-300:]
 
 

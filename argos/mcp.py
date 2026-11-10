@@ -150,8 +150,12 @@ def t_reiniciar(a) -> str:
     cfg, alvo = _cfg(), str(a["alvo"])
     if alvo.isdigit():
         n = int(alvo)
-        foto = acoes.fotografar(cfg)
-        r = acoes.reiniciar_porta(cfg, n) if n in foto.porta_pids else acoes.reiniciar_pid(cfg, n)
+        if n in acoes.fotografar(cfg).porta_pids:
+            return acoes.reiniciar_porta(cfg, n).msg
+        raiz = acoes.pid_de_dev(cfg, n)
+        if raiz is None:
+            return f"{n} não é uma porta em uso nem um processo de desenvolvimento listado em 'status'."
+        r = acoes.reiniciar_pid(cfg, raiz)
     elif registro.buscar(alvo):
         r = acoes.reiniciar_gerenciado(alvo)
     else:
@@ -163,7 +167,11 @@ def t_parar(a) -> str:
     from argos.core import acoes
 
     if a.get("pid"):
-        return acoes.encerrar(int(a["pid"])).msg
+        # Só processos de desenvolvimento: por aqui não se encerra um programa qualquer da máquina
+        raiz = acoes.pid_de_dev(_cfg(), int(a["pid"]))
+        if raiz is None:
+            return f"O PID {a['pid']} não é um processo de desenvolvimento listado em 'status'."
+        return acoes.encerrar(raiz).msg
     if a.get("projeto"):
         return acoes.parar_projeto(_cfg(), a["projeto"]).msg
     return "Diga o projeto ou o PID."

@@ -20,7 +20,7 @@ __all__ = [
     "listar_processos", "pasta_area_de_trabalho", "flags_processo", "encerrar_arvore", "executar_como_admin",
     "habilitar_cores_terminal", "comando_proprio", "abrir_pasta", "abrir_url", "abrir_vscode",
     "abrir_terminal", "registrar_atalho_global", "copiar_texto", "pasta_inicializacao", "SEM_JANELA",
-    "NOMES_VMMEM", "ambiente_externo",
+    "NOMES_VMMEM", "ambiente_externo", "proteger", "desproteger", "interromper_console",
 ]
 
 SEM_JANELA = subprocess.CREATE_NO_WINDOW
@@ -88,8 +88,28 @@ def flags_processo(junto: bool = False) -> int:
     return SEM_JANELA | subprocess.CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB
 
 
-def encerrar_arvore(pid: int) -> tuple[bool, bool]:
-    """Encerra o processo e todos os descendentes. Retorna (ok, acesso_negado)."""
+def interromper_console(pid: int) -> None:
+    """Manda Ctrl+Break a todos os processos do console de `pid`.
+
+    Só funciona de dentro de um processo descartável (`argos _interromper`): é preciso
+    largar o próprio console e entrar no do alvo, e o sinal atinge também quem o envia.
+    """
+    k32 = ctypes.windll.kernel32
+    k32.FreeConsole()
+    if not k32.AttachConsole(wintypes.DWORD(pid)):
+        raise OSError(f"não consegui entrar no console do processo {pid}")
+    k32.GenerateConsoleCtrlEvent(1, 0)  # CTRL_BREAK_EVENT para o console inteiro
+    time.sleep(0.3)
+
+
+def encerrar_arvore(pid: int, gentil: bool = False, espera: float = 4) -> tuple[bool, bool]:
+    """Encerra o processo e todos os descendentes. Retorna (ok, acesso_negado).
+
+    Com `gentil`, primeiro manda Ctrl+Break e espera o servidor fechar sozinho (salvar
+    arquivos, soltar conexões); o que sobrar depois de `espera` segundos é encerrado à
+    força. Só deve ser usado em processos com console próprio (os iniciados pelo Argos):
+    num terminal compartilhado o sinal atingiria também o shell do usuário.
+    """
     try:
         raiz = psutil.Process(pid)
     except psutil.NoSuchProcess:
@@ -98,6 +118,13 @@ def encerrar_arvore(pid: int) -> tuple[bool, bool]:
         filhos = raiz.children(recursive=True)
     except psutil.Error:
         filhos = []
+    if gentil:
+        try:
+            subprocess.run(comando_proprio() + ["_interromper", str(pid)], capture_output=True,
+                           creationflags=SEM_JANELA, timeout=5)
+            psutil.wait_procs([raiz, *filhos], timeout=espera)
+        except (OSError, subprocess.SubprocessError):
+            pass
     negado = False
     for p in [raiz, *filhos]:
         try:
@@ -108,6 +135,34 @@ def encerrar_arvore(pid: int) -> tuple[bool, bool]:
             negado = True
     _, vivos = psutil.wait_procs([raiz, *filhos], timeout=5)
     return not vivos, negado
+
+
+class _Blob(ctypes.Structure):
+    _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+
+def _dpapi(nome: str, dados: bytes) -> bytes:
+    funcao = getattr(ctypes.windll.crypt32, nome)
+    buf = ctypes.create_string_buffer(dados, len(dados))
+    entrada = _Blob(len(dados), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)))
+    saida = _Blob()
+    if not funcao(ctypes.byref(entrada), None, None, None, None, 0, ctypes.byref(saida)):
+        raise OSError(f"{nome} falhou")
+    try:
+        return ctypes.string_at(saida.pbData, saida.cbData)
+    finally:
+        liberar = ctypes.windll.kernel32.LocalFree
+        liberar.argtypes = [ctypes.c_void_p]
+        liberar(ctypes.cast(saida.pbData, ctypes.c_void_p))
+
+
+def proteger(dados: bytes) -> bytes:
+    """Cifra com a DPAPI do Windows: só o mesmo usuário, nesta máquina, consegue abrir."""
+    return _dpapi("CryptProtectData", dados)
+
+
+def desproteger(dados: bytes) -> bytes:
+    return _dpapi("CryptUnprotectData", dados)
 
 
 def comando_proprio() -> list[str]:
@@ -151,7 +206,7 @@ def copiar_texto(texto: str) -> bool:
     u32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
     u32.SetClipboardData.restype = wintypes.HANDLE
     dados = texto.encode("utf-16-le") + b"\x00\x00"
-    for _ in range(10):
+    for _ in range(40):  # outro programa pode estar com a área de transferência aberta por um instante
         if u32.OpenClipboard(None):
             break
         time.sleep(0.05)

@@ -75,6 +75,16 @@ Avisos que aparecem nessa tela:
 
 Cada linha tem atalhos para abrir no celular (QR code), criar um link público, ver os logs, reiniciar e parar.
 
+Parar um processo iniciado pelo Argos primeiro pede que ele feche sozinho (Ctrl+Break) e espera alguns segundos; só o que continuar aberto é encerrado à força. Processos abertos fora do Argos são encerrados direto, porque o sinal atingiria também o terminal onde rodam.
+
+### Sessões e perfis
+
+O botão de sessões (ao lado do modo jogo) lista as sessões salvas. Uma sessão guarda os processos e containers que estavam rodando, com comando, pasta e variáveis, para subir tudo de novo com um clique.
+
+- O modo jogo salva uma sessão automaticamente antes de parar tudo.
+- Salvar com um nome cria um perfil ("trabalho", "jogo"), que fica guardado até ser apagado. Salvar de novo com o mesmo nome substitui o perfil.
+- Se algum item não subir ao retomar, a sessão continua pendente e mostra o que falhou. Retomar de novo tenta só o que ainda não está rodando.
+
 ### Projetos
 
 Os projetos aparecem em cards. Os que estão rodando ficam em cima, separados, com as portas e os botões de reiniciar e parar. Os parados mostram linguagem, branch do Git, alterações pendentes, variáveis de ambiente faltando e o resultado dos últimos testes.
@@ -101,6 +111,8 @@ Quando o projeto está rodando, a página mostra uma faixa com as portas, os end
 ### Logs
 
 Saída do processo em tempo real, com cores, busca (`Ctrl+F`), filtro para mostrar só erros e botão de copiar. Funciona para processos iniciados pelo Argos e para containers Docker.
+
+Quando o projeto tem mais de um serviço rodando, o painel mostra um botão para cada um. Clicar troca o log; o ícone de colunas abre o log daquele serviço ao lado do atual, para acompanhar backend e frontend juntos.
 
 ![Logs](docs/prints/logs.png)
 
@@ -130,7 +142,7 @@ Processos de ferramentas que rodam em segundo plano, como servidores MCP abertos
 
 ### Hoje
 
-Histórico do dia: o que rodou, por quanto tempo e quando parou.
+Histórico do dia: o que rodou, por quanto tempo e quando parou. A visão de 7 dias mostra o tempo de cada projeto por dia; serviços do mesmo projeto rodando juntos contam uma vez só.
 
 ![Hoje](docs/prints/hoje.png)
 
@@ -153,6 +165,7 @@ O app avisa quando:
 - um servidor termina de subir (com botão para abrir no navegador);
 - um processo cai (com as últimas linhas do log);
 - um servidor fica muito tempo sem uso;
+- um processo passa do limite de memória configurado (com botão para reiniciar);
 - chegam commits novos no repositório remoto de um projeto;
 - existe uma versão nova do Argos.
 
@@ -181,8 +194,9 @@ argos iniciar <projeto> [n]  inicia o projeto (comando n da lista; --fixar torna
 argos docker [limpar]        disco e RAM do Docker; limpar libera espaço
 argos docker ligar|desligar  liga ou desliga o Docker Desktop
 argos modo-jogo              para tudo, salva a sessão e desliga o Docker (--wsl, --sem-lembrar)
-argos retomar [id]           sobe de novo o que estava rodando (sessão salva)
-argos sessao [salvar nome]   lista ou salva sessões
+argos retomar [id|perfil]    sobe de novo o que estava rodando (sessão ou perfil salvo)
+argos sessao [salvar nome]   lista as sessões; com nome, salva um perfil
+argos sessao apagar <id>     apaga uma sessão ou perfil
 
 argos tunel <porta>          link público temporário (https://...trycloudflare.com)
 argos testar <projeto>       roda os testes do projeto
@@ -303,6 +317,8 @@ argos mcp --instalar
 
 Ou pelo botão Conectar em Configurações. Ferramentas expostas: `status`, `projetos`, `logs`, `iniciar`, `reiniciar`, `parar`, `subir` e `testar`.
 
+Pelo MCP só dá para parar ou reiniciar processos de desenvolvimento que aparecem em `status`; um PID qualquer da máquina é recusado. `iniciar` aceita apenas os comandos detectados no projeto.
+
 ## Configurações
 
 ![Configurações](docs/prints/configuracoes.png)
@@ -318,7 +334,9 @@ Ou pelo botão Conectar em Configurações. Ferramentas expostas: `status`, `pro
 | Portas fixas | ligado | |
 | Endereços com nome | ligado | proxy `*.localhost` |
 | Avisar servidor sem uso por | 3 horas | 0 desliga |
-| Buscar novidades do Git a cada | 15 minutos | 0 desliga |
+| Buscar novidades do Git a cada | 15 minutos | 0 desliga; a busca automática não apaga referências (sem `--prune`) |
+| Avisar quando um processo passar de | desligado | limite de memória em MB |
+| Procurar atualizações no GitHub | ligado | uma consulta a cada 6 horas |
 
 As opções ficam em `%LOCALAPPDATA%\argos\config.json` (`argos config` abre o arquivo).
 
@@ -326,9 +344,14 @@ As opções ficam em `%LOCALAPPDATA%\argos\config.json` (`argos config` abre o a
 
 `argos tunel <porta>` ou o ícone de globo cria um endereço `https://...trycloudflare.com` acessível de qualquer lugar enquanto o túnel estiver aberto. Usa o [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/), que o app oferece instalar pelo winget na primeira vez. Não precisa de conta na Cloudflare.
 
-### Atualização entre máquinas
+### Atualização
 
-O app procura versões novas em uma pasta configurável (`pasta_atualizacao` no `config.json`). Por padrão é a pasta `dist` deste repositório dentro da pasta de projetos. Se essa pasta for sincronizada (OneDrive, Dropbox), basta gerar um zip novo em uma máquina para as outras oferecerem a atualização.
+O app procura versões novas em dois lugares e avisa quando encontra:
+
+- Releases do GitHub deste repositório (`repo_atualizacao` no `config.json`). O zip é baixado e o SHA-256 informado pelo GitHub é conferido antes de instalar; se não conferir, a atualização é cancelada.
+- Uma pasta local (`pasta_atualizacao`; por padrão, `dist` deste repositório dentro da pasta de projetos). Serve para quem gera o zip numa máquina e sincroniza a pasta com as outras. O `gerar_zip.ps1` grava um `argos-<versão>.zip.sha256` ao lado, que também é conferido.
+
+`argos atualizar` faz a mesma verificação pelo terminal.
 
 ## Onde ficam os dados
 
@@ -337,15 +360,19 @@ Tudo fica em `%LOCALAPPDATA%\argos`:
 | Arquivo | Conteúdo |
 |---|---|
 | `config.json` | configurações |
-| `registro.json` | processos iniciados pelo Argos (comando, pasta, variáveis, log) |
+| `registro.json` | processos iniciados pelo Argos (comando, pasta, variáveis cifradas, log) |
 | `preferencias.json` | comando fixado, recentes, apagados e portas fixas de cada projeto |
-| `sessoes.json` | sessões salvas pelo modo jogo |
+| `sessoes.json` | sessões e perfis (variáveis cifradas) |
 | `testes.json` | resultado dos últimos testes |
 | `historico.jsonl` | histórico usado na aba Hoje |
 | `logs\` | saída de cada processo |
 | `app.log` | log do próprio app |
 
-O Argos não envia dados para nenhum serviço próprio. As conexões externas são as dos seus repositórios Git (fetch, pull e push), o túnel quando você cria um e o winget ao instalar o cloudflared.
+As variáveis de ambiente de cada processo são guardadas para que o reinício seja igual ao original. Como costumam conter chaves e tokens, vão para o disco cifradas com a DPAPI do Windows: só o mesmo usuário, na mesma máquina, consegue abrir. Variáveis da sessão de um assistente de código (`CLAUDE_CODE_*` e afins) não são repassadas aos projetos nem guardadas.
+
+Logs sem uso há mais de 14 dias são apagados. CLI, app e servidor MCP usam uma trava para não sobrescrever as alterações um do outro.
+
+O Argos não envia dados para nenhum serviço próprio. As conexões externas são as dos seus repositórios Git (fetch, pull e push), a consulta às Releases do GitHub para atualização (pode ser desligada), o túnel quando você cria um e o winget ao instalar o cloudflared.
 
 ## Como funciona
 
@@ -353,7 +380,8 @@ O Argos não envia dados para nenhum serviço próprio. As conexões externas s�
 - `argos/core/registro.py`: processos iniciados pelo Argos. Um lançador intermediário (`argos _lancar`) inicia o processo e sai em seguida. Assim, fechar o terminal, mesmo encerrando a árvore inteira, não alcança o processo. A saída vai para `logs\`.
 - `argos/app/monitor.py`: laço em segundo plano que detecta quedas, servidores prontos, uso de memória, servidores sem uso, novidades do Git e versões novas.
 - `argos/app/proxy.py`: proxy TCP (asyncio) que roteia pelo cabeçalho `Host`.
-- `argos/app/`: interface em HTML, CSS e JavaScript, exibida com pywebview (WebView2), e ícone de bandeja com pystray.
+- `argos/app/`: interface em HTML, CSS e JavaScript, exibida com pywebview (WebView2), e ícone de bandeja com pystray. O JavaScript fica em `argos/app/ui/`, um arquivo por área (`rodando.js`, `projetos.js`, `logs.js`...), carregados em ordem pelo `index.html`.
+- `argos/core/arquivo.py` e `segredo.py`: leitura e escrita dos arquivos de dados com trava, e a cifra das variáveis de ambiente.
 - `argos/mcp.py`: servidor MCP por stdio (JSON-RPC).
 - `argos/plataforma/`: tudo que é específico do Windows fica aqui.
 
@@ -386,7 +414,8 @@ Para lançar uma versão: altere `argos/__init__.py` e `pyproject.toml`, rode `i
 ## Limitações
 
 - Só funciona no Windows. O código específico do sistema está isolado em `argos/plataforma/`, mas ainda não há implementação para macOS ou Linux.
-- Processos abertos fora do Argos não têm logs até serem reiniciados por ele.
+- Processos abertos fora do Argos não têm logs até serem reiniciados por ele, e são encerrados sem o pedido de fechamento.
+- Os arquivos de dados cifrados não abrem em outra máquina ou com outro usuário do Windows; as sessões precisam ser salvas de novo.
 - Os endereços `*.localhost` dependem da porta 80 (ou 8088) estar livre.
 - O link público depende do cloudflared e do serviço gratuito de túneis da Cloudflare.
 

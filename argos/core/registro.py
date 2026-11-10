@@ -17,6 +17,7 @@ from pathlib import Path
 import psutil
 
 from argos.config import ARQUIVO_REGISTRO, PASTA_DADOS, PASTA_LOGS
+from argos.core import arquivo, segredo
 from argos.plataforma import encerrar_arvore, flags_processo
 
 LOG_MAXIMO = 5 * 2**20      # ao passar disso, o log é cortado...
@@ -24,44 +25,26 @@ LOG_MANTER = 1 * 2**20      # ...mantendo só o final
 ESQUECER_APOS = 24 * 3600   # entradas paradas somem depois de 1 dia
 
 
-@contextlib.contextmanager
 def _trava():
-    """Trava simples entre processos (CLI e app podem escrever ao mesmo tempo)."""
-    PASTA_DADOS.mkdir(parents=True, exist_ok=True)
-    caminho = ARQUIVO_REGISTRO.with_suffix(".lock")
-    for _ in range(100):
-        try:
-            fd = os.open(caminho, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            break
-        except FileExistsError:
-            try:
-                if time.time() - caminho.stat().st_mtime > 10:
-                    caminho.unlink()
-            except OSError:
-                pass
-            time.sleep(0.05)
-    else:
-        fd = None
-    try:
-        yield
-    finally:
-        if fd is not None:
-            os.close(fd)
-            with contextlib.suppress(OSError):
-                caminho.unlink()
+    """Trava entre processos (CLI, app e MCP escrevem no mesmo registro)."""
+    return arquivo.trava(ARQUIVO_REGISTRO)
 
 
 def _ler() -> list[dict]:
-    try:
-        return json.loads(ARQUIVO_REGISTRO.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
+    return [segredo.ler_de(e) for e in arquivo.ler(ARQUIVO_REGISTRO, [])]
 
 
 def _gravar(entradas: list[dict]) -> None:
-    tmp = ARQUIVO_REGISTRO.with_suffix(".tmp")
-    tmp.write_text(json.dumps(entradas, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, ARQUIVO_REGISTRO)
+    # As variáveis de ambiente vão cifradas para o disco (podem ter chaves e tokens)
+    arquivo.gravar(ARQUIVO_REGISTRO, [segredo.guardar_em(e) for e in entradas])
+
+
+def _apagar_log(e: dict) -> None:
+    """Remove o log de uma entrada esquecida (só se estiver na pasta de logs do Argos)."""
+    with contextlib.suppress(OSError, KeyError, ValueError):
+        log = Path(e["log"]).resolve()
+        if PASTA_LOGS.resolve() in log.parents:
+            log.unlink(missing_ok=True)
 
 
 def vivo(e: dict) -> bool:
@@ -91,6 +74,7 @@ def listar() -> list[dict]:
                 mantidas.append(e)
             else:
                 mudou = True
+                _apagar_log(e)
         if mudou:
             _gravar([{k: v for k, v in e.items() if k != "vivo"} for e in mantidas])
     return mantidas
@@ -109,7 +93,24 @@ def ativos_por_pid() -> dict[int, dict]:
 
 def esquecer(id_: str) -> None:
     with _trava():
-        _gravar([e for e in _ler() if e["id"] != id_])
+        entradas = _ler()
+        for e in entradas:
+            if e["id"] == id_ and not vivo(e):
+                _apagar_log(e)
+        _gravar([e for e in entradas if e["id"] != id_])
+
+
+def limpar_logs_antigos(dias: int = 14) -> int:
+    """Apaga logs que nenhuma entrada usa mais e que não mudam há dias dias."""
+    usados = {Path(e["log"]).name for e in _ler() if e.get("log")}
+    limite = time.time() - dias * 86400
+    apagados = 0
+    for f in PASTA_LOGS.glob("*.log"):
+        with contextlib.suppress(OSError):
+            if f.name not in usados and f.stat().st_mtime < limite:
+                f.unlink()
+                apagados += 1
+    return apagados
 
 
 def _slug(texto: str) -> str:
@@ -142,7 +143,7 @@ def _limpar_env(env: dict) -> dict:
     """
     from argos.config import PASTA_ANTIGA
 
-    env = {k: v for k, v in env.items() if not k.upper().startswith("_PYI_")}
+    env = {k: v for k, v in segredo.sem_sessao(env).items() if not k.upper().startswith("_PYI_")}
     venv = env.get("UV_PROJECT_ENVIRONMENT", "")
     if venv and str(PASTA_DADOS).lower() in venv.lower():
         del env["UV_PROJECT_ENVIRONMENT"]
@@ -172,7 +173,7 @@ def lancar(arquivo_spec: str) -> None:
     Assim o processo fica sem pai e quem fechar o terminal derrubando a árvore
     de processos não chega até ele.
     """
-    spec = json.loads(Path(arquivo_spec).read_text(encoding="utf-8"))
+    spec = segredo.ler_de(json.loads(Path(arquivo_spec).read_text(encoding="utf-8")))
     Path(arquivo_spec).unlink(missing_ok=True)
     proc = _popen(spec["cmd"], spec["cwd"], spec["env"], spec["shell"], spec["log"], False)
     print(proc.pid, flush=True)
@@ -183,7 +184,7 @@ def _iniciar_desacoplado(cmd: str, cwd: str, env: dict, shell: bool, log: str) -
 
     PASTA_DADOS.mkdir(parents=True, exist_ok=True)
     spec = PASTA_DADOS / f"lancar-{uuid.uuid4().hex[:8]}.json"
-    spec.write_text(json.dumps({"cmd": cmd, "cwd": cwd, "env": env, "shell": shell, "log": log}),
+    spec.write_text(json.dumps(segredo.guardar_em({"cmd": cmd, "cwd": cwd, "env": env, "shell": shell, "log": log})),
                     encoding="utf-8")
     r = subprocess.run(comando_proprio() + ["_lancar", str(spec)], capture_output=True, text=True,
                        creationflags=SEM_JANELA, timeout=30)
@@ -227,7 +228,7 @@ def iniciar(cmd: str, cwd: str, env: dict[str, str], *, shell: bool, nome: str,
 
     entrada = {
         "id": id_, "nome": nome, "projeto": projeto, "cmd": cmd, "shell": shell,
-        "cwd": cwd, "env": env, "pid": pid, "criado": criado, "junto": junto,
+        "cwd": cwd, "env": segredo.sem_sessao(env), "pid": pid, "criado": criado, "junto": junto,
         "log": str(caminho_log), "log_de": log_de, "inicio": time.time(), "auto": auto,
         "manual": False, "reinicios": reinicios or [],
     }
@@ -259,7 +260,7 @@ def definir_auto(id_: str, ativo: bool) -> None:
 def reiniciar(e: dict, por_queda: bool = False) -> tuple[dict, subprocess.Popen | None]:
     if vivo(e):
         marcar_parada(e["pid"])
-        encerrar_arvore(e["pid"])
+        encerrar_arvore(e["pid"], gentil=not e.get("junto"))
     agora = time.time()
     # Guarda os reinícios automáticos recentes, para não entrar em loop
     reinicios = [t for t in e.get("reinicios", []) if agora - t < 600] + ([agora] if por_queda else [])
