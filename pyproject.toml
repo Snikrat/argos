@@ -1,6 +1,6 @@
 [project]
 name = "argos"
-version = "1.3.0"
+version = "1.3.1"
 description = "Painel do que está rodando de desenvolvimento: Docker, portas e processos."
 requires-python = ">=3.12"
 license = "MIT"

@@ -59,6 +59,20 @@ def total_faltando(pasta_projeto: str) -> int:
     return sum(len(a["faltando"]) for a in analisar(pasta_projeto))
 
 
+def gravar(caminho: Path, texto: str) -> None:
+    """Grava mantendo o fim de linha que o arquivo já usa (LF ou CRLF).
+
+    O modo texto do Python no Windows troca todo "\\n" por "\\r\\n"; num .env lido por
+    bash ou Docker, o "\\r" vira parte do valor da variável.
+    """
+    try:
+        fim = "\r\n" if b"\r\n" in caminho.read_bytes() else "\n"
+    except OSError:
+        fim = "\n"
+    texto = texto.replace("\r\n", "\n").replace("\r", "\n").replace("\n", fim)
+    caminho.write_bytes(texto.encode("utf-8"))
+
+
 def completar(pasta: str) -> tuple[bool, str]:
     """Cria o .env a partir do exemplo ou acrescenta só as variáveis que faltam."""
     p = Path(pasta)
@@ -68,15 +82,15 @@ def completar(pasta: str) -> tuple[bool, str]:
     exemplo = Path(a["exemplo"]["caminho"])
     destino = p / ".env"
     if not destino.exists():
-        destino.write_text(exemplo.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+        destino.write_bytes(exemplo.read_bytes())  # cópia fiel, com o fim de linha do exemplo
         return True, f".env criado a partir do {exemplo.name}. Preencha os valores."
     if not a["faltando"]:
         return True, "Nada faltando."
     valores = ler_chaves(exemplo)
     extra = "\n# Adicionadas pelo Argos a partir do " + exemplo.name + "\n" + "".join(
         f"{k}={valores.get(k, '')}\n" for k in a["faltando"])
-    texto = destino.read_text(encoding="utf-8", errors="replace")
-    destino.write_text(texto.rstrip("\n") + "\n" + extra, encoding="utf-8")
+    texto = destino.read_bytes().decode("utf-8", errors="replace").replace("\r\n", "\n")
+    gravar(destino, texto.rstrip("\n") + "\n" + extra)
     return True, f"{len(a['faltando'])} variável(is) adicionada(s) ao .env. Preencha os valores."
 
 

@@ -220,8 +220,9 @@ class Api:
         return [r for r, _ in projetos.subpastas_app(Path(p["pasta"]))] if p else []
 
     def apagar_dependencia(self, caminho: str) -> dict:
-        p = Path(caminho)
-        dentro = any(Path(r) in p.parents for r in self._cfg.pastas_projetos)
+        # resolve(): sem isso, "projetos\x\..\..\outro\node_modules" passava como "dentro"
+        p = Path(caminho).resolve()
+        dentro = any(Path(r).resolve() in p.parents for r in self._cfg.pastas_projetos)
         if p.name not in projetos.PASTAS_DEPENDENCIAS or not dentro or not p.is_dir():
             return {"ok": False, "msg": "Só apago node_modules/.venv/venv/.godot dentro dos projetos."}
         shutil.rmtree(p, ignore_errors=True)
@@ -318,7 +319,7 @@ class Api:
         from argos.core import ambiente
         if not ambiente.arquivo_valido(caminho, self._cfg.pastas_projetos):
             return {"ok": False, "msg": "Arquivo inválido."}
-        Path(caminho).write_text(texto, encoding="utf-8")
+        ambiente.gravar(Path(caminho), texto)
         return {"ok": True, "msg": f"{Path(caminho).name} salvo. Reinicie o servidor para valer."}
 
     def completar_env(self, pasta: str) -> dict:

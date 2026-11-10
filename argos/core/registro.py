@@ -207,6 +207,11 @@ def iniciar(cmd: str, cwd: str, env: dict[str, str], *, shell: bool, nome: str,
     id_ = id_ or uuid.uuid4().hex[:6]
     caminho_log = Path(log) if log else PASTA_LOGS / f"{_slug(projeto or nome)}-{id_}.log"
     _preparar_log(caminho_log, f"argos: {nome}").close()
+    # O log é reaproveitado entre execuções: daqui em diante é a saída desta
+    try:
+        log_de = caminho_log.stat().st_size
+    except OSError:
+        log_de = 0
 
     proc = None
     if junto:
@@ -223,7 +228,7 @@ def iniciar(cmd: str, cwd: str, env: dict[str, str], *, shell: bool, nome: str,
     entrada = {
         "id": id_, "nome": nome, "projeto": projeto, "cmd": cmd, "shell": shell,
         "cwd": cwd, "env": env, "pid": pid, "criado": criado, "junto": junto,
-        "log": str(caminho_log), "inicio": time.time(), "auto": auto,
+        "log": str(caminho_log), "log_de": log_de, "inicio": time.time(), "auto": auto,
         "manual": False, "reinicios": reinicios or [],
     }
     with _trava():

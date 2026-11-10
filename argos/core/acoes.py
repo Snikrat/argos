@@ -304,9 +304,13 @@ def esperar_pronto(spec: str, entrada: dict | None = None, timeout: float = 120)
             except (OSError, ValueError):
                 pass
         elif spec.startswith("log:") and entrada:
+            # Só a saída desta execução: o arquivo guarda também as anteriores, e o texto
+            # de uma subida antiga fazia o serviço parecer pronto na hora
             try:
-                if spec[4:] in Path(entrada["log"]).read_text(encoding="utf-8", errors="replace"):
-                    return True, ""
+                with open(entrada["log"], "rb") as f:
+                    f.seek(entrada.get("log_de", 0))
+                    if spec[4:] in f.read().decode("utf-8", errors="replace"):
+                        return True, ""
             except OSError:
                 pass
         time.sleep(0.5)
