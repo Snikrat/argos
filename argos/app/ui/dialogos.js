@@ -102,9 +102,22 @@ async function abrirSessoes() {
     <p>Um perfil guarda um conjunto de processos e containers para subir de novo com um clique.</p>
     <div class="lin"><input class="campo" id="ss-nome" placeholder="Nome do perfil (ex: trabalho)" data-foco spellcheck="false">
       <button class="bt azul" id="ss-salvar">Salvar o que está rodando</button></div>
+    <button class="bt texto" id="ss-montar" style="align-self:flex-start">Ou montar um perfil escolhendo projetos…</button>
+    <div class="montar-perfil" hidden></div>
     <div class="lista-sessoes"></div>
     <div class="rodape"><button class="bt" data-resp="nao">Fechar</button></div></div>`, (m, fechar) => {
     const caixa = m.querySelector(".lista-sessoes");
+    // Perfil sem precisar subir nada antes: escolhe os comandos dos projetos
+    const montar = m.querySelector(".montar-perfil");
+    m.querySelector("#ss-montar").onclick = async () => {
+      if (!projetosCache) projetosCache = await api.projetos();
+      montar.hidden = !montar.hidden;
+      m.querySelector("#ss-salvar").textContent = montar.hidden ? "Salvar o que está rodando" : "Salvar perfil";
+      montar.innerHTML = projetosCache.filter((p) => p.comandos.length).map((p) => `<div class="montar-projeto"><b>${esc(p.nome)}</b>
+        ${p.comandos.filter((c) => c.tipo !== "godot").map((c) => `<label><input type="checkbox" data-projeto="${esc(p.nome)}" data-chave="${esc(c.chave)}"
+          data-nome="${esc((c.sub ? c.sub + ": " : "") + c.rotulo)}"><span class="mono">${c.sub ? esc(c.sub) + "/ " : ""}${esc(c.rotulo)}</span></label>`).join("")}</div>`).join("")
+        || `<div class="linha-sub">Nenhum projeto com comandos.</div>`;
+    };
     const desenhar = () => {
       caixa.innerHTML = lista.length ? lista.map((s) => {
         const oq = [s.processos && plural(s.processos, "processo", "processos"), s.containers && plural(s.containers, "container", "containers")].filter(Boolean).join(" e ");
@@ -118,9 +131,17 @@ async function abrirSessoes() {
       }).join("") : `<div class="linha-sub" style="padding:14px 2px">Nenhuma sessão salva. O modo jogo salva uma automaticamente.</div>`;
     };
     m.querySelector("#ss-salvar").onclick = async () => {
-      const r = await api.salvar_sessao(m.querySelector("#ss-nome").value.trim());
+      const nome = m.querySelector("#ss-nome").value.trim();
+      const escolhidos = [...montar.querySelectorAll("input:checked")].map((i) => ({ projeto: i.dataset.projeto, chave: i.dataset.chave, nome: i.dataset.nome }));
+      const r = montar.hidden ? await api.salvar_sessao(nome) : await api.criar_perfil(nome, escolhidos);
       resultado(r);
-      if (r.ok) { m.querySelector("#ss-nome").value = ""; lista = await api.sessoes(); desenhar(); }
+      if (r.ok) {
+        m.querySelector("#ss-nome").value = "";
+        montar.hidden = true;
+        m.querySelector("#ss-salvar").textContent = "Salvar o que está rodando";
+        lista = await api.sessoes();
+        desenhar();
+      }
     };
     caixa.addEventListener("click", async (e) => {
       const b = e.target.closest("button");
@@ -129,6 +150,42 @@ async function abrirSessoes() {
       if (b.dataset.apagar) { await api.apagar_sessao(b.dataset.apagar); lista = await api.sessoes(); desenhar(); }
     });
     desenhar();
+  });
+}
+
+// Procura um texto nos logs de todos os serviços de um projeto
+async function abrirBuscaLogs(projeto, inicial = "") {
+  await modal(`<div class="folha busca-logs">
+    <h3>Buscar nos logs de ${esc(projeto)}</h3>
+    <input class="campo" placeholder="Texto para procurar em todos os serviços (ex: error, timeout, /api/pedidos)" data-foco spellcheck="false" value="${esc(inicial)}">
+    <div class="resultado-logs"><div class="linha-sub" style="padding:10px 2px">Digite pelo menos 2 letras.</div></div>
+    <div class="rodape"><button class="bt" data-resp="nao">Fechar</button></div></div>`, (m, fechar) => {
+    const input = m.querySelector("input"), caixa = m.querySelector(".resultado-logs");
+    let pedido = 0, espera = null;
+    const buscar = async () => {
+      const texto = input.value.trim();
+      if (texto.length < 2) { caixa.innerHTML = `<div class="linha-sub" style="padding:10px 2px">Digite pelo menos 2 letras.</div>`; return; }
+      const n = ++pedido;
+      const achados = await api.buscar_logs(projeto, texto);
+      if (n !== pedido) return; // chegou uma busca mais nova
+      const re = new RegExp(esc(texto).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+      caixa.innerHTML = achados.length ? achados.map((s) => `<div class="servico-achado">
+        <button class="bt texto" data-abrir="${esc(s.id)}" data-tipo="${esc(s.tipo)}" data-nome="${esc(s.nome)}" title="Abrir este log com a busca">${esc(s.nome)}
+          <span class="linha-sub">${plural(s.total, "linha", "linhas")}${s.vivo ? "" : " · parado"}</span></button>
+        <pre>${s.linhas.map((l) => esc(l).replace(re, (x) => `<mark>${x}</mark>`)).join("\n")}</pre></div>`).join("")
+        : `<div class="linha-sub" style="padding:10px 2px">Nada encontrado. Só processos iniciados pelo Argos e containers têm log.</div>`;
+    };
+    input.addEventListener("input", () => { clearTimeout(espera); espera = setTimeout(buscar, 250); });
+    caixa.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-abrir]");
+      if (!b) return;
+      const texto = input.value.trim();
+      fechar(null);
+      abrirLogs(b.dataset.tipo, b.dataset.abrir, b.dataset.nome);
+      $("#log-busca").value = texto;
+      setTimeout(() => renderLog(true), 1500);
+    });
+    if (inicial) buscar();
   });
 }
 

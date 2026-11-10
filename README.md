@@ -83,6 +83,7 @@ O botão de sessões (ao lado do modo jogo) lista as sessões salvas. Uma sessã
 
 - O modo jogo salva uma sessão automaticamente antes de parar tudo.
 - Salvar com um nome cria um perfil ("trabalho", "jogo"), que fica guardado até ser apagado. Salvar de novo com o mesmo nome substitui o perfil.
+- Um perfil também pode ser montado sem nada rodando: "montar um perfil escolhendo projetos" lista os comandos de cada projeto para marcar. Ao retomar, cada comando é iniciado como pelo botão da tela (porta fixa, arquivo `.env` escolhido).
 - Se algum item não subir ao retomar, a sessão continua pendente e mostra o que falhou. Retomar de novo tenta só o que ainda não está rodando.
 
 ### Projetos
@@ -95,12 +96,13 @@ Clicar em um card abre a página do projeto:
 
 ![Página de um projeto](docs/prints/projeto.png)
 
+- Serviços do argos.toml: quando o projeto tem esse arquivo, cada serviço aparece com o estado e botões para iniciar, parar e reiniciar só ele. Iniciar um serviço sobe antes o que ele precisa (`depois`); os outros não são tocados.
 - Comandos: os detectados no projeto, agrupados pela pasta onde rodam (raiz, `backend/`, `frontend/`). O botão principal do card é o último comando usado, ou o que você fixar com o alfinete.
 - Outro comando: roda qualquer comando na pasta escolhida. Ele fica na lista como recente.
 - Apagar e restaurar: o X ao lado de um comando o tira da lista sem mexer nos arquivos do projeto. Os apagados aparecem riscados e voltam com um clique.
-- Porta: clique no número da porta para escolher outra.
+- Porta: clique no número da porta para escolher outra. Se a porta de um comando já estiver em uso por outro programa, o card e a linha do comando avisam antes de você iniciar.
 - Git: Fetch, Pull, Push e troca de branch. Clicar na branch (no card, no topo da página ou na seção Git) abre um seletor com busca, que lista as branches locais e as que só existem no servidor, e cria uma branch nova a partir da atual. Escolher uma branch do servidor baixa a branch e a deixa ligada à remota. Se o projeto estiver rodando, o aviso oferece reiniciá-lo.
-- Variáveis de ambiente: abre o `.env` para editar e aponta o que falta em relação ao `.env.example`, com opção de completar.
+- Variáveis de ambiente: abre o `.env` para editar e aponta o que falta em relação ao `.env.example`, com opção de completar. Havendo mais de um arquivo na pasta (`.env`, `.env.staging`, `.env.production`...), dá para escolher qual usar ao iniciar: as variáveis dele vão no ambiente do processo e valem sobre as do `.env` padrão.
 - Testes: detecta e roda os testes do projeto, com o resultado e o log.
 - Dependências: mostra o espaço ocupado por `node_modules` e `.venv`, com opção de apagar.
 
@@ -114,6 +116,8 @@ Saída do processo em tempo real, com cores, busca (`Ctrl+F`), filtro para mostr
 
 Quando o projeto tem mais de um serviço rodando, o painel mostra um botão para cada um. Clicar troca o log; o ícone de colunas abre o log daquele serviço ao lado do atual, para acompanhar backend e frontend juntos.
 
+"Buscar em todos" (também na página do projeto e na paleta) procura um texto nos logs de todos os serviços do projeto de uma vez e mostra as linhas encontradas por serviço. Clicar no nome do serviço abre o log dele já com a busca.
+
 ![Logs](docs/prints/logs.png)
 
 ### Abrir no celular
@@ -124,7 +128,7 @@ Gera um QR code com o endereço do servidor na rede local. Se o servidor só ace
 
 ### Paleta de comandos
 
-`Ctrl+K` abre uma busca por projetos, comandos, processos e ações (iniciar, parar, abrir logs, modo jogo).
+`Ctrl+K` abre uma busca por projetos, comandos, processos e ações (iniciar, parar, abrir logs, trocar de branch, buscar nos logs, sessões, modo jogo).
 
 ![Paleta de comandos](docs/prints/paleta.png)
 
@@ -181,8 +185,12 @@ argos rodar <comando>        roda com logs; fechar o terminal não para o proces
                              --junto: para junto com o terminal
                              --auto: reinicia sozinho se cair
 argos subir <projeto>        sobe tudo do argos.toml em ordem (--criar gera um modelo)
+argos servico <projeto> [nome] [parar|reiniciar]
+                             lista os serviços do argos.toml; com nome, sobe só ele e o que ele precisa
+argos branch <projeto> [b]   lista as branches; com nome, troca (local ou do servidor); --criar cria
 argos celular [porta]        QR code para abrir o servidor no celular
 argos logs <alvo>            acompanha os logs (id, PID, porta, projeto ou container)
+                             --buscar TEXTO: procura nos logs de todos os serviços do projeto
 argos reiniciar <alvo>       reinicia (porta, PID, id ou projeto) mantendo pasta e variáveis
 argos parar <projeto>        para containers e processos do projeto
 argos porta <n>              encerra quem está usando a porta
@@ -203,6 +211,9 @@ argos testar <projeto>       roda os testes do projeto
 argos atualizar              instala a versão nova do Argos, se houver
 argos mcp --instalar         registra o Argos como ferramenta do Claude Code
 
+argos exportar <arquivo>     grava opções, portas fixas e perfis para levar a outra máquina
+argos importar <arquivo>     junta um arquivo exportado à configuração desta máquina
+
 argos app                    abre o painel
 argos config                 abre o arquivo de configuração
 argos ajuda                  lista todos os comandos
@@ -219,6 +230,10 @@ argos reiniciar loja             # reinicia todos os processos do projeto "loja"
 argos porta 3000 -f              # libera a porta 3000 sem perguntar
 argos modo-jogo --wsl            # para tudo e desliga Docker e WSL para liberar memória
 argos retomar                    # sobe de novo o que o modo jogo parou
+argos retomar trabalho           # sobe o perfil "trabalho"
+argos servico loja api reiniciar # reinicia só o serviço "api" do argos.toml
+argos branch loja feature/pix    # troca de branch (baixa do servidor se preciso)
+argos logs loja --buscar timeout # procura "timeout" nos logs de todos os serviços
 ```
 
 Reiniciar um processo que foi aberto fora do Argos copia o comando, a pasta e as variáveis de ambiente do original. A partir daí os logs passam a ser capturados.
@@ -339,6 +354,12 @@ Pelo MCP só dá para parar ou reiniciar processos de desenvolvimento que aparec
 | Procurar atualizações no GitHub | ligado | uma consulta a cada 6 horas |
 
 As opções ficam em `%LOCALAPPDATA%\argos\config.json` (`argos config` abre o arquivo).
+
+### Levar para outra máquina
+
+Exportar (nas configurações ou `argos exportar arquivo.json`) grava as opções, o comando fixado, os comandos apagados, as portas fixas, o arquivo `.env` escolhido e os perfis montados a partir de comandos. Importar junta isso ao que já existe na outra máquina.
+
+Não são exportados: variáveis de ambiente, sessões capturadas de processos rodando (dependem dos caminhos e do ambiente de cada máquina), o registro e os logs. As pastas de projetos só são adicionadas se existirem na máquina que importa.
 
 ### Link público
 

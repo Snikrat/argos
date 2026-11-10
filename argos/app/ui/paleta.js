@@ -53,6 +53,12 @@ function itensPaleta() {
     if (E.docker.ligado) add("Desligar o Docker Desktop", "docker", "docker", () => ACOES["docker-desligar"]());
     else add("Ligar o Docker Desktop", "docker", "docker", () => ACOES["docker-ligar"]());
   }
+  for (const p of (projetosCache || []).filter((p) => p.git)) {
+    add(`Trocar branch · ${p.nome}`, p.git.branch, "git", () => abrirBranches(p.nome));
+  }
+  for (const a of (E ? E.ativos : []).filter((a) => a.nome)) {
+    add(`Buscar nos logs · ${a.nome}`, "todos os serviços", "busca", () => abrirBuscaLogs(a.nome));
+  }
   add("Modo jogo", "parar tudo e liberar memória", "jogo", () => abrirModoJogo());
   add("Sessões e perfis", "salvar e retomar conjuntos de projetos", "retomar", () => abrirSessoes());
   add("Configurações", "Argos", "config", () => abrirConfig());

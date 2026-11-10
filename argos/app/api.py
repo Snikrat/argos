@@ -188,6 +188,74 @@ class Api:
         threading.Thread(target=trabalho, daemon=True, name=f"subir-{nome}").start()
         return {"ok": True, "msg": f"Subindo {p['nome']}…", "em_andamento": True}
 
+    def servicos(self, nome: str) -> list[dict]:
+        """Serviços do argos.toml do projeto, com o que está rodando."""
+        p = projetos.buscar(self._cfg, nome)
+        return acoes.estado_servicos(self._cfg, p) if p else []
+
+    def servico(self, nome: str, servico: str, op: str) -> dict:
+        """Inicia, para ou reinicia um serviço só (iniciar sobe também o que ele precisa)."""
+        p = projetos.buscar(self._cfg, nome)
+        if not p or op not in ("iniciar", "parar", "reiniciar"):
+            return {"ok": False, "msg": "Projeto ou operação inválida."}
+        if op == "parar":
+            return self._pronto(acoes.parar_servico(self._cfg, p, servico))
+        m = self._monitor
+
+        def trabalho(progresso):
+            f = acoes.reiniciar_servico if op == "reiniciar" else lambda c, pr, s, prog: acoes.subir_projeto(c, pr, prog, so=s)
+            r = f(self._cfg, p, servico, progresso)
+            return r.ok, r.msg, {"id_": r.extra.get("id")}
+
+        self._em_segundo_plano(f"{p['nome']} · {servico}", trabalho)
+        return {"ok": True, "msg": f"{'Reiniciando' if op == 'reiniciar' else 'Subindo'} {servico}…", "em_andamento": True}
+
+    def buscar_logs(self, nome: str, texto: str) -> list[dict]:
+        """Procura `texto` nos logs de todos os processos e containers do projeto."""
+        p = projetos.buscar(self._cfg, nome)
+        if not p or not texto.strip():
+            return []
+        achados = registro.buscar_nos_logs(p["nome"], texto)
+        alvo = texto.lower().strip()
+        for c in ((self._monitor.estado or {}).get("docker", {}).get("containers", []) if self._monitor else []):
+            if c["estado"] == "running" and c["projeto"].lower() == p["nome"].lower():
+                linhas = [l for l in registro._ANSI.sub("", docker.logs(c["id"], 800)).splitlines() if alvo in l.lower()]
+                if linhas:
+                    achados.append({"id": c["id"], "nome": c["nome"], "vivo": True, "tipo": "container",
+                                    "total": len(linhas), "linhas": linhas[-40:]})
+        return achados
+
+    def criar_perfil(self, nome: str, comandos: list[dict]) -> dict:
+        from argos.core import sessoes
+        comandos = [c for c in comandos or [] if isinstance(c, dict) and c.get("projeto") and c.get("chave")]
+        if not nome.strip() or not comandos:
+            return {"ok": False, "msg": "Dê um nome ao perfil e escolha pelo menos um comando."}
+        s = sessoes.criar_perfil(nome, comandos)
+        return {"ok": True, "msg": f"Perfil '{s['nome']}' salvo com {len(s['itens'])} comando(s)."}
+
+    def exportar_config(self) -> dict:
+        """Abre o diálogo de salvar e grava a configuração para levar a outra máquina."""
+        import webview
+
+        from argos.core import transporte
+        escolha = self._janela.create_file_dialog(webview.SAVE_DIALOG, save_filename="argos-config.json",
+                                                  file_types=("Configuração do Argos (*.json)",)) if self._janela else None
+        if not escolha:
+            return {"ok": False, "msg": ""}
+        ok, msg = transporte.gravar(self._cfg, escolha if isinstance(escolha, str) else escolha[0])
+        return {"ok": ok, "msg": msg}
+
+    def importar_config(self) -> dict:
+        import webview
+
+        from argos.core import transporte
+        escolha = self._janela.create_file_dialog(webview.OPEN_DIALOG,
+                                                  file_types=("Configuração do Argos (*.json)",)) if self._janela else None
+        if not escolha:
+            return {"ok": False, "msg": ""}
+        ok, msg = transporte.importar(self._cfg, escolha if isinstance(escolha, str) else escolha[0])
+        return self._pronto({"ok": ok, "msg": msg})
+
     def criar_grupo(self, nome: str) -> dict:
         p = projetos.buscar(self._cfg, nome)
         if not p:
@@ -319,9 +387,23 @@ class Api:
     # --- .env ------------------------------------------------------------
 
     def ambiente(self, nome: str) -> list[dict]:
-        from argos.core import ambiente
+        from argos.core import ambiente, preferencias
         p = projetos.buscar(self._cfg, nome)
-        return ambiente.analisar(p["pasta"]) if p else []
+        analise = ambiente.analisar(p["pasta"]) if p else []
+        for a in analise:
+            a["usar"] = preferencias.arquivo_env(p["nome"], a["sub"]) or ""
+        return analise
+
+    def escolher_env(self, nome: str, sub: str, arquivo: str) -> dict:
+        """Arquivo .env cujas variáveis vão no ambiente ao iniciar comandos dessa pasta ("" = padrão)."""
+        from argos.core import ambiente, preferencias
+        p = projetos.buscar(self._cfg, nome)
+        if not p or (arquivo and (not (arquivo == ".env" or arquivo.startswith(".env.")) or ambiente.e_exemplo(arquivo)
+                                  or "/" in arquivo or "\\" in arquivo)):
+            return {"ok": False, "msg": "Arquivo inválido."}
+        preferencias.definir_arquivo_env(p["nome"], sub, arquivo or None)
+        return {"ok": True, "msg": f"Os comandos de {sub + '/' if sub else 'raiz'} vão iniciar com {arquivo}." if arquivo
+                else "Voltou ao padrão do projeto. Vale na próxima vez que iniciar."}
 
     def ler_env(self, caminho: str) -> dict:
         from argos.core import ambiente

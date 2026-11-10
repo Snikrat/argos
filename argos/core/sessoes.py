@@ -74,6 +74,42 @@ def salvar(est: dict, motivo: str = "manual", nome: str = "") -> dict:
     return sessao
 
 
+def criar_perfil(nome: str, comandos: list[dict]) -> dict:
+    """Perfil montado a partir de comandos de projetos (não precisa estar nada rodando).
+
+    Cada item é {"projeto", "chave", "nome"}: ao retomar, o comando é procurado de novo no
+    projeto e iniciado como pelo botão da tela (com porta fixa, .env escolhido etc.).
+    """
+    nome = nome.strip()
+    itens = [{"tipo": "comando", "projeto": c["projeto"], "chave": c["chave"],
+              "nome": c.get("nome") or c["chave"].split("|", 1)[-1], "portas": []} for c in comandos]
+    sessao = {"id": uuid.uuid4().hex[:6], "quando": time.time(), "motivo": "perfil", "nome": nome,
+              "itens": itens, "retomada": True}
+    if nome and itens:
+        with arquivo.trava(ARQUIVO):
+            _gravar([sessao] + [s for s in _ler() if s.get("nome", "").lower() != nome.lower()])
+    return sessao
+
+
+def _iniciar_comando(item: dict) -> str | None:
+    """Inicia o comando de um perfil. Devolve None se já estava rodando; levanta se falhar."""
+    from argos import config
+    from argos.core import acoes, projetos
+
+    cfg = config.carregar()
+    p = projetos.buscar(cfg, item["projeto"])
+    c = projetos.buscar_comando(p, item["chave"]) if p else None
+    if not c:
+        raise RuntimeError("projeto ou comando não existe mais")
+    rotulo = f"{c['sub']}: {c['rotulo']}" if c.get("sub") else c["rotulo"]
+    if any(e["vivo"] and e.get("projeto", "").lower() == p["nome"].lower() and e["nome"] == rotulo for e in registro.listar()):
+        return None
+    r = acoes.iniciar_comando(cfg, p, c)
+    if not r.ok:
+        raise RuntimeError(r.msg)
+    return rotulo
+
+
 def _resumo(s: dict) -> dict:
     return {"id": s["id"], "quando": s["quando"], "motivo": s["motivo"], "nome": s.get("nome", ""),
             "retomada": bool(s.get("retomada")), "falhas": s.get("falhas", []),
@@ -159,6 +195,12 @@ def retomar(alvo: str | None = None, progresso=lambda msg: None) -> tuple[bool, 
                 if not ok:  # o container pode ter sido recriado com outro id
                     ok, _ = docker.iniciar([i["nome"]])
                 (subiu if ok else falhou).append(i["nome"])
+                continue
+            if i["tipo"] == "comando":
+                if _iniciar_comando(i) is None:
+                    continue
+                progresso(f"Subindo {i['projeto']}…")
+                subiu.append(i["nome"])
                 continue
             if i["tipo"] == "argos":
                 e = registro.buscar(i["id"])

@@ -25,6 +25,11 @@ document.addEventListener("click", (ev) => {
 // Chaves (switch) disparam a ação ao mudar
 document.addEventListener("change", async (ev) => {
   const el = ev.target;
+  if (el.dataset.envUsar) {
+    resultado(await api.escolher_env(el.dataset.envUsar, el.dataset.sub || "", el.value));
+    delete extrasCache[el.dataset.envUsar];
+    return;
+  }
   if (el.tagName === "INPUT" && el.dataset.acao && ACOES[el.dataset.acao]) ACOES[el.dataset.acao](el.dataset, null);
 });
 

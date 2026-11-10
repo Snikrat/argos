@@ -284,6 +284,17 @@ def cmd_rodar(cfg, a) -> int:
 
 def cmd_logs(cfg, a) -> int:
     alvo = a.alvo
+    if getattr(a, "buscar", None):
+        achados = registro.buscar_nos_logs(alvo, a.buscar)
+        if not achados:
+            info(f"Nada com '{a.buscar}' nos logs de '{alvo}' (só processos iniciados pelo Argos têm log).")
+            return 1
+        for s in achados:
+            titulo(f"{s['nome']} ({'rodando' if s['vivo'] else 'parado'}, id {s['id']}) - {s['total']} linha(s)")
+            for linha in s["linhas"]:
+                print("  " + linha)
+        print()
+        return 0
     e = registro.buscar(alvo)
     est = None
     if not e:
@@ -504,6 +515,92 @@ def cmd_modo_jogo(cfg, a) -> int:
                                              lembrar=not a.sem_lembrar), a.forcar)
 
 
+def _projeto(cfg, nome):
+    p = projetos.buscar(cfg, nome)
+    if not p:
+        erro(f"Projeto '{nome}' não encontrado. Veja: argos projetos")
+    return p
+
+
+def cmd_servico(cfg, a) -> int:
+    """Lista os serviços do argos.toml ou inicia/para/reinicia um deles."""
+    p = _projeto(cfg, a.projeto)
+    if not p:
+        return 1
+    if not a.nome:
+        lista = acoes.estado_servicos(cfg, p)
+        if not lista:
+            erro(f"'{p['nome']}' não tem argos.toml (crie com: argos subir {p['nome']} --criar).")
+            return 1
+        titulo(f"SERVIÇOS DE {p['nome'].upper()}")
+        tabela([{"serviço": s["nome"], "tipo": s["tipo"], "estado": "rodando" if s["rodando"] else "parado",
+                 "depois de": ", ".join(s["depois"]) or "-", "_cor": None if s["rodando"] else "2"} for s in lista],
+               ["serviço", "tipo", "estado", "depois de"])
+        info(f"argos servico {p['nome']} <nome> [iniciar|parar|reiniciar]")
+        print()
+        return 0
+    passo = lambda m: print("  " + c("›", "36") + " " + m)
+    if a.op == "parar":
+        r = acoes.parar_servico(cfg, p, a.nome)
+    elif a.op == "reiniciar":
+        r = acoes.reiniciar_servico(cfg, p, a.nome, passo)
+    else:
+        r = acoes.subir_projeto(cfg, p, passo, so=a.nome)
+    (sucesso if r.ok else erro)(r.msg)
+    return 0 if r.ok else 1
+
+
+def cmd_branch(cfg, a) -> int:
+    """Mostra as branches do projeto ou troca para uma (local, do servidor ou nova com --criar)."""
+    from argos.core import git
+
+    p = _projeto(cfg, a.projeto)
+    if not p:
+        return 1
+    b = git.branches(p["pasta"])
+    if not b["locais"]:
+        erro(f"'{p['nome']}' não é um repositório Git.")
+        return 1
+    if not a.branch:
+        titulo(f"BRANCHES DE {p['nome'].upper()}")
+        tabela([{"branch": n, "onde": "atual" if n == b["atual"] else "local", "_cor": "32" if n == b["atual"] else None}
+                for n in b["locais"]] + [{"branch": r["nome"], "onde": f"só em {r['remoto']}", "_cor": "2"} for r in b["remotas"]],
+               ["branch", "onde"])
+        info(f"argos branch {p['nome']} <branch>  ·  --criar para uma nova a partir da atual")
+        print()
+        return 0
+    if a.criar:
+        ok, msg = git.criar(p["pasta"], a.branch)
+    elif a.branch in b["locais"]:
+        ok, msg = (True, f"Já está na branch {a.branch}.") if a.branch == b["atual"] else git.checkout(p["pasta"], a.branch)
+    else:
+        remota = next((r for r in b["remotas"] if a.branch in (r["nome"], r["ref"])), None)
+        if not remota:
+            erro(f"Branch '{a.branch}' não existe. Use --criar para criar, ou veja: argos branch {p['nome']}")
+            return 1
+        ok, msg = git.checkout_remota(p["pasta"], remota["ref"])
+    (sucesso if ok else erro)(msg)
+    if ok and any(x["nome"].lower() == p["nome"].lower() for x in acoes.estado(cfg, com_docker=False)["ativos"]):
+        info(f"O projeto está rodando: reinicie para usar o código da branch (argos reiniciar {p['nome']}).")
+    return 0 if ok else 1
+
+
+def cmd_exportar(cfg, a) -> int:
+    from argos.core import transporte
+
+    ok, msg = transporte.gravar(cfg, a.arquivo)
+    (sucesso if ok else erro)(msg)
+    return 0 if ok else 1
+
+
+def cmd_importar(cfg, a) -> int:
+    from argos.core import transporte
+
+    ok, msg = transporte.importar(cfg, a.arquivo)
+    (sucesso if ok else erro)(msg)
+    return 0 if ok else 1
+
+
 def cmd_retomar(cfg, a) -> int:
     from argos.core import sessoes
 
@@ -670,6 +767,7 @@ AJUDA = """
   argos subir <projeto>        sobe tudo do argos.toml em ordem (--criar gera um modelo)
   argos celular [porta]        QR code para abrir o servidor no celular
   argos logs <alvo>            acompanha os logs (id, PID, porta, projeto ou container)
+                              --buscar TEXTO: procura nos logs de todos os serviços do projeto
   argos reiniciar <alvo>       reinicia (porta, PID, id ou projeto) mantendo pasta e variáveis
   argos parar <projeto>        para containers e processos do projeto
   argos porta <n>              encerra quem está usando a porta
@@ -681,6 +779,11 @@ AJUDA = """
   argos docker [limpar]        disco e RAM do Docker; limpar libera espaço
   argos docker ligar|desligar  liga ou desliga o Docker Desktop
   argos modo-jogo              para tudo, salva a sessão e desliga o Docker (--wsl, --sem-lembrar)
+  argos servico <projeto> [nome] [parar|reiniciar]
+                              lista os serviços do argos.toml; com nome, sobe só ele (e o que ele precisa)
+  argos branch <projeto> [b]   lista as branches; com nome, troca (local ou do servidor); --criar cria
+  argos exportar|importar <arquivo>
+                              leva opções, portas fixas e perfis para outra máquina (sem variáveis)
   argos retomar [id|perfil]    sobe de novo o que estava rodando (sessão ou perfil salvo)
   argos sessao [salvar nome]   lista as sessões; com nome, salva um perfil (apagar <id|nome> remove)
 
@@ -738,6 +841,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("alvo")
     s.add_argument("--sem-seguir", action="store_true")
     s.add_argument("--bytes", type=int, default=8000)
+    s.add_argument("--buscar", metavar="TEXTO")
     novo("projetos", cmd_projetos)
     s = novo("iniciar", cmd_iniciar)
     s.add_argument("projeto")
@@ -751,6 +855,16 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--manter-docker", action="store_true")
     s.add_argument("--sem-lembrar", action="store_true")
     novo("retomar", cmd_retomar).add_argument("id", nargs="?")
+    s = novo("servico", cmd_servico, "serviço")
+    s.add_argument("projeto")
+    s.add_argument("nome", nargs="?")
+    s.add_argument("op", nargs="?", choices=["iniciar", "parar", "reiniciar"], default="iniciar")
+    s = novo("branch", cmd_branch)
+    s.add_argument("projeto")
+    s.add_argument("branch", nargs="?")
+    s.add_argument("--criar", action="store_true")
+    novo("exportar", cmd_exportar).add_argument("arquivo")
+    novo("importar", cmd_importar).add_argument("arquivo")
     s = novo("sessao", cmd_sessao, "sessoes")
     s.add_argument("acao", nargs="?", choices=["salvar", "listar", "apagar"], default="listar")
     s.add_argument("nome", nargs="?")

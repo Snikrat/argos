@@ -25,15 +25,49 @@ def ler_chaves(caminho: Path) -> dict[str, str]:
     return saida
 
 
+def e_exemplo(nome: str) -> bool:
+    return nome in ARQUIVOS_EXEMPLO or nome.endswith((".example", ".sample", ".template", ".dist"))
+
+
+def arquivos_env(pasta: Path) -> list[Path]:
+    """.env e .env.<ambiente> da pasta (staging, production...), sem os de exemplo."""
+    try:
+        achados = [f for f in pasta.iterdir() if f.is_file() and (f.name == ".env" or f.name.startswith(".env."))
+                   and not e_exemplo(f.name)]
+    except OSError:
+        return []
+    ordem = {n: i for i, n in enumerate(ARQUIVOS_ENV)}
+    return sorted(achados, key=lambda f: (ordem.get(f.name, len(ordem)), f.name))
+
+
+def variaveis_escolhidas(projeto: dict, sub: str = "") -> dict[str, str]:
+    """Variáveis do arquivo .env escolhido para a pasta, para pôr no ambiente do processo.
+
+    Sem escolha devolve {}: o projeto carrega o .env dele como sempre. Com escolha
+    (ex: .env.staging), essas variáveis vão no ambiente e valem sobre as do .env padrão,
+    porque as bibliotecas de .env não sobrescrevem o que já está definido.
+    """
+    from argos.core import preferencias
+
+    sub = (sub or "").strip("\\/")
+    nome = preferencias.arquivo_env(projeto["nome"], sub)
+    if not nome:
+        return {}
+    arq = (Path(projeto["pasta"]) / sub / nome) if sub and sub != "." else Path(projeto["pasta"]) / nome
+    return ler_chaves(arq) if arq.is_file() and not e_exemplo(nome) else {}
+
+
 def analisar_pasta(pasta: Path, sub: str = "") -> dict | None:
     """Arquivos .env de uma pasta e as variáveis que faltam (comparando com o exemplo)."""
-    envs = [pasta / n for n in ARQUIVOS_ENV if (pasta / n).is_file()]
+    envs = arquivos_env(pasta)
     exemplo = next((pasta / n for n in ARQUIVOS_EXEMPLO if (pasta / n).is_file()), None)
     if not envs and not exemplo:
         return None
     definidas: set[str] = set()
+    # "Faltando" compara com os arquivos de desenvolvimento: um .env.production completo não conta
     for e in envs:
-        definidas |= set(ler_chaves(e))
+        if e.name in ARQUIVOS_ENV:
+            definidas |= set(ler_chaves(e))
     faltando = sorted(set(ler_chaves(exemplo)) - definidas) if exemplo else []
     return {
         "sub": sub, "pasta": str(pasta),
@@ -97,5 +131,5 @@ def completar(pasta: str) -> tuple[bool, str]:
 def arquivo_valido(caminho: str, pastas_projetos: list[str]) -> bool:
     """Só deixa ler/gravar arquivos .env dentro das pastas de projetos."""
     p = Path(caminho).resolve()
-    nome_ok = p.name in ARQUIVOS_ENV or p.name in ARQUIVOS_EXEMPLO
+    nome_ok = p.name == ".env" or p.name.startswith(".env.")
     return nome_ok and any(Path(r).resolve() in p.parents for r in pastas_projetos)

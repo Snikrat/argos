@@ -71,7 +71,8 @@ function renderServicosLog() {
   const lista = logAtual ? servicosDoLog(logAtual.tipo, logAtual.alvo) : [];
   el.hidden = lista.length < 2;
   if (el.hidden) { fecharLogLado(); return; }
-  el.innerHTML = lista.map((s) => {
+  const projeto = (E.unidades.find((u) => u.gerenciado === logAtual.alvo) || E.docker.containers.find((c) => c.id === logAtual.alvo) || {}).projeto;
+  el.innerHTML = `<button class="bt texto buscar-todos" ${attr({ acao: "buscar-logs", projeto })} title="Procurar um texto nos logs de todos os serviços">${IC.busca}Buscar em todos</button>` + lista.map((s) => {
     const ativo = s.alvo === logAtual.alvo, lado = logLado && s.alvo === logLado.alvo;
     return `<span class="servico-log ${ativo ? "ativo" : ""} ${lado ? "lado" : ""}">
       <button data-log-alvo="${esc(s.alvo)}" data-log-tipo="${esc(s.tipo)}" data-log-nome="${esc(s.nome)}" title="Ver este log">${esc(s.nome)}</button>

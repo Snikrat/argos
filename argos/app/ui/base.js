@@ -87,6 +87,10 @@ function criarMock(dados) {
       historico: async () => dados.historico || [],
       historico_semana: async () => [{ projeto: "loja", dias: [0, 7200, 14400, 3600, 0, 21600, 9000], total: 55800 },
         { projeto: "clinica", dias: [3600, 0, 0, 10800, 5400, 0, 1800], total: 21600 }],
+      servicos: async () => [{ nome: "db", tipo: "docker", rodando: true, depois: [] },
+        { nome: "server", tipo: "processo", rodando: true, depois: ["db"] }, { nome: "web", tipo: "processo", rodando: false, depois: ["server"] }],
+      buscar_logs: async (p, t) => [{ id: "aaa111", nome: "web: npm run dev", vivo: true, tipo: "processo", total: 2,
+        linhas: [`[vite] ${t}: failed to resolve import "./Carrinho"`, `${t} ao recarregar src/App.tsx`] }],
       sessoes: async () => [
         { id: "p1", nome: "trabalho", motivo: "manual", quando: Date.now() / 1000 - 86400, retomada: true, falhas: [], processos: 3, containers: 1, projetos: ["clinica", "loja"] },
         { id: "s1", nome: "", motivo: "modo jogo", quando: Date.now() / 1000 - 3600, retomada: false, falhas: ["loja-db-1"], processos: 2, containers: 1, projetos: ["loja"] }],

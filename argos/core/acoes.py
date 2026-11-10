@@ -15,7 +15,7 @@ from pathlib import Path
 import psutil
 
 from argos.config import Config
-from argos.core import docker, portas, registro
+from argos.core import ambiente, docker, portas, registro
 from argos.core.coleta import Fotografia, rotulo_comando
 from argos.plataforma import SEM_JANELA, ambiente_externo, encerrar_arvore
 
@@ -335,14 +335,28 @@ def esperar_pronto(spec: str, entrada: dict | None = None, timeout: float = 120)
     return False, f"não ficou pronto em {int(timeout)}s"
 
 
-def subir_projeto(cfg: Config, projeto: dict, progresso=lambda msg: None) -> Resultado:
-    """Sobe os serviços do argos.toml em ordem, esperando cada um ficar pronto."""
+def subir_projeto(cfg: Config, projeto: dict, progresso=lambda msg: None, so: str | None = None) -> Resultado:
+    """Sobe os serviços do argos.toml em ordem, esperando cada um ficar pronto.
+
+    Com `so`, sobe só esse serviço e o que ele precisa (`depois`), sem tocar nos outros.
+    """
     from argos.core import projetos as proj
 
     try:
         servicos = proj.carregar_grupo(projeto["pasta"])
     except proj.ErroGrupo as e:
         return Resultado(False, str(e))
+    if so:
+        por_nome = {s["nome"]: s for s in servicos}
+        if so not in por_nome:
+            return Resultado(False, f"O argos.toml de {projeto['nome']} não tem o serviço '{so}'.")
+        precisa, fila = set(), [so]
+        while fila:
+            n = fila.pop()
+            if n not in precisa:
+                precisa.add(n)
+                fila += por_nome[n]["depois"]
+        servicos = [s for s in servicos if s["nome"] in precisa]
     # Duas subidas ao mesmo tempo (dois cliques, ou app e terminal) iniciariam tudo em dobro
     marca = _marca_subida(projeto["nome"])
     if marca is None:
@@ -403,7 +417,9 @@ def _subir_servicos(cfg: Config, projeto: dict, servicos: list[dict], progresso)
                 return Resultado(False, f"{nome}: a porta {pronto[6:]} já está em uso por {c['dono'] if c else 'outro programa'}.",
                                  conflito=c)
             progresso(f"Subindo {nome}…")
-            env = {**os.environ, **{k: str(v) for k, v in (s.get("env") or {}).items()}}
+            # Ordem: ambiente do sistema, arquivo .env escolhido para a pasta, env do argos.toml
+            env = {**os.environ, **ambiente.variaveis_escolhidas(projeto, s.get("pasta", "")),
+                   **{k: str(v) for k, v in (s.get("env") or {}).items()}}
             entrada, _ = registro.iniciar(
                 s["cmd"], pasta, env, shell=True, nome=nome, projeto=projeto["nome"],
                 auto=bool(s.get("auto")), id_=anterior["id"] if anterior else None,
@@ -416,6 +432,57 @@ def _subir_servicos(cfg: Config, projeto: dict, servicos: list[dict], progresso)
                                  extra={"id": entrada["id"] if entrada else None})
             progresso(f"{nome} pronto")
     return Resultado(True, f"{projeto['nome']} no ar: " + " → ".join(s["nome"] for s in servicos))
+
+
+def _containers_do_servico(projeto: dict, s: dict, containers: list[dict]) -> list[dict]:
+    pasta = os.path.normcase(os.path.normpath(str(Path(projeto["pasta"]) / s.get("pasta", "."))))
+    return [c for c in containers
+            if os.path.normcase(os.path.normpath(c["pasta"] or "")) == pasta and s["docker"] in ("*", c["servico"])]
+
+
+def estado_servicos(cfg: Config, projeto: dict) -> list[dict]:
+    """Serviços do argos.toml com o que está rodando de cada um."""
+    from argos.core import projetos as proj
+
+    try:
+        servicos = proj.carregar_grupo(projeto["pasta"])
+    except (proj.ErroGrupo, OSError):
+        return []
+    vivos = {e["nome"]: e for e in registro.listar() if e.get("projeto") == projeto["nome"] and e["vivo"]}
+    tem_docker = any(s.get("docker") for s in servicos)
+    containers = docker.containers() if tem_docker and docker.instalado() and docker.ligado() else []
+    saida = []
+    for s in servicos:
+        item = {"nome": s["nome"], "depois": s["depois"], "tipo": "docker" if s.get("docker") else "processo",
+                "rodando": False, "id": None, "pid": None, "containers": []}
+        if s.get("docker"):
+            meus = [c for c in _containers_do_servico(projeto, s, containers) if c["estado"] == "running"]
+            item.update(rodando=bool(meus), containers=[c["id"] for c in meus])
+        elif s["nome"] in vivos:
+            e = vivos[s["nome"]]
+            item.update(rodando=True, id=e["id"], pid=e["pid"])
+        saida.append(item)
+    return saida
+
+
+def parar_servico(cfg: Config, projeto: dict, nome: str) -> Resultado:
+    s = next((x for x in estado_servicos(cfg, projeto) if x["nome"] == nome), None)
+    if not s:
+        return Resultado(False, f"O argos.toml de {projeto['nome']} não tem o serviço '{nome}'.")
+    if not s["rodando"]:
+        return Resultado(True, f"{nome} já estava parado.")
+    if s["tipo"] == "docker":
+        ok, texto = docker.parar(s["containers"])
+        return Resultado(ok, f"{nome} parado." if ok else texto[-300:])
+    r = encerrar(s["pid"])
+    return Resultado(r.ok, f"{nome} parado." if r.ok else r.msg, admin=r.admin)
+
+
+def reiniciar_servico(cfg: Config, projeto: dict, nome: str, progresso=lambda msg: None) -> Resultado:
+    r = parar_servico(cfg, projeto, nome)
+    if not r.ok:
+        return r
+    return subir_projeto(cfg, projeto, progresso, so=nome)
 
 
 def criar_grupo(projeto: dict) -> Resultado:
@@ -451,6 +518,7 @@ def iniciar_comando(cfg: Config, projeto: dict, comando: dict, ignorar_conflito:
         return Resultado(True, "Abrindo no Godot...")
 
     cmd, env = comando["cmd"], dict(os.environ)
+    env.update(ambiente.variaveis_escolhidas(projeto, comando.get("sub", "")))
     if cfg.portas_fixas and comando.get("ferramenta"):
         porta = preferencias.porta_reservada(projeto["nome"], comando["chave"])
         if not porta:
@@ -481,7 +549,8 @@ def iniciar_personalizado(projeto: dict, cmd: str, sub: str = "") -> Resultado:
     if not Path(pasta).is_dir():
         return Resultado(False, f"A pasta '{sub}' não existe nesse projeto.")
     nome = f"{sub}: {cmd}" if sub else cmd
-    entrada, _ = registro.iniciar(cmd, pasta, dict(os.environ), shell=True, nome=nome, projeto=projeto["nome"])
+    env = {**os.environ, **ambiente.variaveis_escolhidas(projeto, sub)}
+    entrada, _ = registro.iniciar(cmd, pasta, env, shell=True, nome=nome, projeto=projeto["nome"])
     chave = preferencias.adicionar_recente(projeto["nome"], cmd, pasta, sub)
     preferencias.registrar_uso(projeto["nome"], chave)
     return Resultado(True, f"Iniciado: {nome}", extra={"id": entrada["id"]})

@@ -86,6 +86,22 @@ def restaurar(projeto: str, chave: str | None = None) -> None:
         p["ocultos"] = [] if chave is None else [c for c in p.get("ocultos", []) if c != chave]
 
 
+# --- arquivo .env usado ao iniciar ---------------------------------------------
+
+def arquivo_env(projeto: str, sub: str = "") -> str | None:
+    """Nome do arquivo .env escolhido para a pasta (None = o que o projeto carrega sozinho)."""
+    return _ler().get(projeto.lower(), {}).get("env", {}).get(sub or ".")
+
+
+def definir_arquivo_env(projeto: str, sub: str, nome: str | None) -> None:
+    with _editar() as dados:
+        escolhas = _do_projeto(dados, projeto).setdefault("env", {})
+        if nome:
+            escolhas[sub or "."] = nome
+        else:
+            escolhas.pop(sub or ".", None)
+
+
 # --- portas fixas -----------------------------------------------------------
 
 def _chave_porta(projeto: str, chave: str) -> str:

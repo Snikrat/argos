@@ -33,11 +33,23 @@ async function renderProjetos(recarregar = false) {
 
 // Projeto em execução agora (vem do estado), pelo nome
 const ativoDe = (nome) => E?.ativos.find((a) => a.nome && a.nome.toLowerCase() === nome.toLowerCase());
-const assinatura = () => (E ? E.ativos.map((a) => `${a.nome}:${a.portas.join(",")}`).join("|") : "");
+const assinatura = () => (E ? E.ativos.map((a) => `${a.nome}:${a.portas.join(",")}`).join("|") + "#" + E.portas.map((x) => x.porta).join(",") : "");
 let assinaturaAtivos = "";
+
+// Quem está ocupando a porta de um comando, se não for o próprio projeto (visto antes de clicar em iniciar)
+function conflitoDe(p, c) {
+  if (!E || !c.porta) return null;
+  const x = E.portas.find((y) => y.porta === c.porta);
+  return x && (x.projeto || "").toLowerCase() !== p.nome.toLowerCase() ? x : null;
+}
 
 function etiquetasProjeto(p) {
   const partes = [];
+  const presos = p.comandos.map((c) => [c, conflitoDe(p, c)]).filter(([, x]) => x);
+  if (presos.length) {
+    const [c, x] = presos[0];
+    partes.push(`<span class="etq vermelho" title="${esc(presos.map(([c2, x2]) => `:${c2.porta} em uso por ${x2.dono}${x2.projeto ? ` (${x2.projeto})` : ""}`).join("\n"))}">porta ${c.porta} ocupada</span>`);
+  }
   if (p.git) {
     partes.push(`<button class="git" ${attr({ acao: "branches", projeto: p.nome })} title="Trocar de branch">${IC.git}${esc(p.git.branch)}</button>`);
     if (p.git.alteracoes) partes.push(`<span class="etq laranja" title="Arquivos alterados e não commitados">${plural(p.git.alteracoes, "alteração", "alterações")}</span>`);
@@ -107,6 +119,7 @@ function statusProjeto(p) {
     <span class="ponto"></span><b>Rodando</b><span class="linha-sub">desde ${hora(a.inicio)} · ${plural(a.unidades.length + a.containers.length, "item", "itens")}</span>
     ${portasDoAtivo(a).join("")}${links}
     <span class="direita">
+      <button class="bt texto" ${attr({ acao: "buscar-logs", projeto: p.nome })}>Buscar nos logs</button>
       <button class="bt texto" ${attr({ acao: "aba", aba: "rodando" })}>Ver processos</button>
       ${ib("reiniciar", { acao: "reiniciar-projeto", nome: a.nome }, "Reiniciar tudo")}
       ${ib("parar", { acao: "parar-projeto", nome: a.nome }, "Parar tudo", "perigo")}
@@ -122,6 +135,7 @@ function atualizarProjetosRodando() {
     const p = projetosCache.find((x) => x.nome === projetoAberto);
     const el = document.querySelector("[data-status-projeto]");
     if (p && el) el.innerHTML = statusProjeto(p);
+    if (p && p.grupo) carregarExtras(p.nome, true); // estado de cada serviço
   } else renderProjetos();
 }
 
@@ -137,6 +151,7 @@ function detalheProjeto(p) {
     return `<div class="cmd-linha" role="button" tabindex="0" ${attr({ acao: "iniciar", projeto: p.nome, chave: c.chave })} title="${esc(c.detalhe || c.cmd)}">
       <span class="play">${IC.play}</span><span class="nome">${esc(c.rotulo)}</span>
       ${c.recente ? `<span class="etq">recente</span>` : ""}
+      ${conflitoDe(p, c) ? `<span class="etq vermelho" title="Iniciar vai perguntar se quer encerrar quem está na porta">porta em uso por ${esc(conflitoDe(p, c).dono)}</span>` : ""}
       ${c.porta || c.ferramenta ? `<button class="porta-prev ${c.porta_fixa ? "fixa" : ""}" ${attr({ acao: "editar-porta", projeto: p.nome, chave: c.chave, porta: c.porta || "" })}
         title="${c.porta_fixa ? "Porta fixa deste comando (clique para mudar)" : c.ferramenta ? "Porta prevista: vira fixa ao iniciar (clique para escolher)" : "Porta prevista"}">:${c.porta || "?"}</button>` : ""}
       <span class="cmd-acoes">
@@ -183,8 +198,10 @@ async function carregarExtras(nome, forcar = false) {
   if ((extrasCache[nome] && !forcar) || extrasCarregando.has(nome)) return;
   extrasCarregando.add(nome);
   try {
-    const [branches, env, testes] = await Promise.all([api.git_branches(nome), api.ambiente(nome), api.testes(nome)]);
-    extrasCache[nome] = { branches, env, testes };
+    const temGrupo = !!((projetosCache || []).find((x) => x.nome === nome) || {}).grupo;
+    const [branches, env, testes, servicos] = await Promise.all([api.git_branches(nome), api.ambiente(nome), api.testes(nome),
+      temGrupo ? api.servicos(nome) : []]);
+    extrasCache[nome] = { branches, env, testes, servicos };
   } finally {
     extrasCarregando.delete(nome);
   }
@@ -197,6 +214,20 @@ function renderExtras(p) {
   const x = extrasCache[p.nome];
   if (!x) { carregarExtras(p.nome); return `<div class="extra-carregando"><span class="girando"></span></div>`; }
   const blocos = [];
+
+  if ((x.servicos || []).length) {
+    blocos.push(`<div class="extra"><div class="extra-titulo">${IC.rodando}Serviços do argos.toml
+      <button class="bt texto" style="margin-left:auto" ${attr({ acao: "iniciar", projeto: p.nome, chave: (p.comandos.find((c) => c.tipo === "grupo") || {}).chave || "" })}>Subir tudo</button></div>
+      ${x.servicos.map((s) => `<div class="lin servico-linha">
+        <span class="ponto ${s.rodando ? "" : "cinza"}"></span>
+        <span class="mono">${esc(s.nome)}</span>
+        <span class="linha-sub" style="flex:1">${s.tipo === "docker" ? "container" : "processo"}${s.depois.length ? ` · depois de ${esc(s.depois.join(", "))}` : ""}</span>
+        ${s.rodando
+          ? ib("reiniciar", { acao: "servico", projeto: p.nome, servico: s.nome, op: "reiniciar" }, "Reiniciar só este serviço")
+            + ib("parar", { acao: "servico", projeto: p.nome, servico: s.nome, op: "parar" }, "Parar só este serviço", "perigo")
+          : ib("play", { acao: "servico", projeto: p.nome, servico: s.nome, op: "iniciar" }, s.depois.length ? `Iniciar (sobe antes: ${s.depois.join(", ")})` : "Iniciar só este serviço")}
+      </div>`).join("")}</div>`);
+  }
 
   if (p.git && x.branches.locais.length) {
     const g = p.git;
@@ -218,6 +249,10 @@ function renderExtras(p) {
         ${a.arquivos.map((f) => `<button class="bt texto" ${attr({ acao: "editar-env", caminho: f.caminho, projeto: p.nome })} title="${f.chaves} variável(is)">${esc(f.nome)}</button>`).join("")}
         ${a.faltando.length ? `<span class="etq laranja" title="${esc(a.faltando.join(", "))}">${a.sem_env ? "sem .env" : `faltam ${a.faltando.length}: ${esc(a.faltando.slice(0, 3).join(", "))}${a.faltando.length > 3 ? "…" : ""}`}</span>
           <button class="bt texto" ${attr({ acao: "completar-env", pasta: a.pasta, projeto: p.nome })}>${a.sem_env ? "Criar .env do exemplo" : "Completar"}</button>` : ""}
+        ${a.arquivos.length > 1 || a.usar ? `<span class="env-usar"><span class="linha-sub">ao iniciar:</span>
+          <select class="campo seletor" data-env-usar="${esc(p.nome)}" data-sub="${esc(a.sub)}" title="Arquivo cujas variáveis vão no ambiente ao iniciar comandos desta pasta">
+            <option value="">padrão do projeto</option>
+            ${a.arquivos.map((f) => `<option ${f.nome === a.usar ? "selected" : ""}>${esc(f.nome)}</option>`).join("")}</select></span>` : ""}
       </div>`).join("")}</div>`);
   }
 

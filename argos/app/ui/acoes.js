@@ -79,6 +79,19 @@ const ACOES = {
   "descartar-sessao": async (d) => resultado(await api.descartar_sessao(d.id)),
   "salvar-sessao": async () => resultado(await api.salvar_sessao()),
   sessoes: () => abrirSessoes(),
+  "buscar-logs": (d) => d.projeto && abrirBuscaLogs(d.projeto),
+  servico: async (d, b) => {
+    const r = await comCarregando(b, () => api.servico(d.projeto, d.servico, d.op));
+    resultado(r);
+    setTimeout(() => carregarExtras(d.projeto, true), 1200);
+  },
+  "exportar-config": async () => { const r = await api.exportar_config(); if (r.msg) resultado(r); },
+  "importar-config": async () => {
+    const r = await api.importar_config();
+    if (!r.msg) return;
+    resultado(r);
+    if (r.ok) { CFG = await api.config(); projetosCache = null; if (aba === "projetos") renderProjetos(true); }
+  },
   periodo: (d) => { periodoHoje = d.periodo; renderHoje(); },
   tunel: (d) => abrirTunel(d.porta),
   "editar-porta": async (d) => {
@@ -224,6 +237,8 @@ async function abrirConfig() {
         <label class="item"><span class="rot">Procurar atualizações no GitHub<small>uma consulta a cada 6 horas</small></span><span class="chave"><input type="checkbox" id="cf-gh" ${c.procurar_atualizacao ? "checked" : ""}><span></span></span></label>
         <div class="item"><span class="rot">Ferramenta do Claude (MCP)<small>deixa o Claude Code ver e controlar o Argos</small></span>
           <button class="bt" data-acao="conectar-claude">Conectar</button></div>
+        <div class="item"><span class="rot">Levar para outra máquina<small>opções, portas fixas e perfis · sem variáveis de ambiente</small></span>
+          <span style="display:flex;gap:6px"><button class="bt" data-acao="importar-config">Importar</button><button class="bt" data-acao="exportar-config">Exportar</button></span></div>
       </div>
     </div>
     <div class="rodape"><button class="bt texto perigo" id="cf-sair" style="margin-right:auto">Sair do Argos</button>

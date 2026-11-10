@@ -269,6 +269,30 @@ def reiniciar(e: dict, por_queda: bool = False) -> tuple[dict, subprocess.Popen 
                    auto=e.get("auto", False), reinicios=reinicios)
 
 
+def buscar_nos_logs(projeto: str, texto: str, por_servico: int = 40) -> list[dict]:
+    """Linhas dos logs dos processos de `projeto` que contêm `texto` (sem diferenciar maiúsculas)."""
+    alvo = texto.lower().strip()
+    if not alvo:
+        return []
+    saida = []
+    for e in sorted(listar(), key=lambda x: (not x["vivo"], -x.get("inicio", 0))):
+        if e.get("projeto", "").lower() != projeto.lower():
+            continue
+        try:
+            with open(e["log"], "rb") as f:
+                f.seek(0, os.SEEK_END)
+                f.seek(max(0, f.tell() - 2 * 2**20))
+                bruto = f.read().decode("utf-8", errors="replace")
+        except OSError:
+            continue
+        linhas = [_ANSI.sub("", l).split("\r")[-1].rstrip() for l in bruto.splitlines()]
+        achadas = [l for l in linhas if alvo in l.lower()]
+        if achadas:
+            saida.append({"id": e["id"], "nome": e["nome"], "vivo": e["vivo"], "tipo": "processo",
+                          "total": len(achadas), "linhas": achadas[-por_servico:]})
+    return saida
+
+
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[\]()][^\x07\x1b]*(\x07|\x1b\\)?")
 
 
