@@ -1,25 +1,20 @@
-﻿# Compila a partir do código e instala nesta máquina:
+﻿# Compila a partir do código e instala nesta máquina, com o mesmo instalador das releases:
 #   - argos.exe e argos-app.exe em %LOCALAPPDATA%\argos\app
-#   - essa pasta no PATH do usuário (comando `argos` em qualquer terminal)
-#   - atalho na inicialização do Windows (app abre escondido na bandeja)
-# Uso:  .\instalar.ps1           (instala/atualiza)
-#       .\instalar.ps1 -SemInicializacao
-# Para levar a outra máquina: .\empacotar\gerar_zip.ps1
+#   - atalho no Menu Iniciar e entrada em Configurações > Aplicativos
+#   - comando `argos` no PATH e abertura com o Windows (as opções da última instalação são mantidas)
+# Uso:  .\instalar.ps1            instala/atualiza e abre o app
+#       .\instalar.ps1 -Pacotes   gera também o zip portátil em dist\
+# Precisa do Inno Setup: winget install JRSoftware.InnoSetup
 
-param([switch]$SemInicializacao)
+param([switch]$Pacotes)
 $ErrorActionPreference = 'Stop'
 
-$compilado = & (Join-Path $PSScriptRoot 'empacotar\compilar.ps1') | Select-Object -Last 1
+$setup = & (Join-Path $PSScriptRoot 'empacotar\gerar_pacotes.ps1') -SemZip:(-not $Pacotes) | Select-Object -Last 1
 
-# Remove os atalhos antigos do script PowerShell, se existirem
-foreach ($antigo in "$HOME\.local\bin\devs.ps1", "$HOME\.local\bin\devs.cmd") {
-    if (Test-Path $antigo) { Remove-Item $antigo; Write-Host "  removido $antigo" }
-}
-
-# O mesmo instalador do pacote portátil, apontando para a pasta recém-compilada
-$temp = Join-Path $env:LOCALAPPDATA 'argos\build\local'
-Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force $temp | Out-Null
-New-Item -ItemType Junction -Path (Join-Path $temp 'app') -Target $compilado | Out-Null
-Copy-Item (Join-Path $PSScriptRoot 'empacotar\portatil\*.ps1') $temp
-& (Join-Path $temp 'instalar.ps1') -SemInicializacao:$SemInicializacao
+Write-Host '> Instalando' -ForegroundColor Cyan
+# Silencioso: fecha o app aberto, substitui os arquivos e abre de novo
+$p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru
+# WaitForExit espera só o instalador; "-Wait" esperaria também o app que ele abre no fim
+$p.WaitForExit()
+if ($p.ExitCode -ne 0) { throw "O instalador terminou com erro (código $($p.ExitCode))." }
+Write-Host '  Argos instalado. Ctrl+Alt+D abre o painel.' -ForegroundColor Green

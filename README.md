@@ -28,22 +28,30 @@ São duas partes que usam os mesmos dados:
 
 ## Instalação
 
-Requisitos: Windows 10 ou 11. Não precisa de Python instalado.
+Requisitos: Windows 10 ou 11. Não precisa de Python instalado nem de permissão de administrador.
 
-1. Baixe o `argos-<versão>.zip` na página de [Releases](../../releases).
-2. Extraia o zip em qualquer pasta.
-3. Dê dois cliques em `instalar.bat`.
+1. Baixe o `Argos-Setup-<versão>.exe` na página de [Releases](../../releases).
+2. Execute e siga o assistente.
 
-O instalador:
+O instalador copia o app para `%LOCALAPPDATA%\argos\app`, cria o atalho no Menu Iniciar e a entrada em Configurações > Aplicativos, e oferece três opções:
 
-- copia o app para `%LOCALAPPDATA%\argos\app` (não pede administrador);
-- coloca o comando `argos` no PATH do usuário (abra um terminal novo depois);
-- cria um atalho no Menu Iniciar e uma entrada em Configurações > Aplicativos;
-- faz o app abrir junto com o Windows, escondido na bandeja.
+| Opção | Padrão | O que faz |
+|---|---|---|
+| Comando `argos` no terminal | marcada | adiciona a pasta do app ao PATH do usuário (abra um terminal novo depois) |
+| Abrir com o Windows | marcada | o app inicia escondido perto do relógio |
+| Registrar no Claude Code | desmarcada | registra o servidor MCP (o mesmo que `argos mcp --instalar`) |
 
-Para remover, use Configurações > Aplicativos > Argos > Desinstalar, ou `desinstalar.bat` no zip. As configurações e logs em `%LOCALAPPDATA%\argos` são mantidos, a menos que você apague a pasta.
+Instalar uma versão nova por cima mantém as opções escolhidas e os dados. O instalador fecha o app aberto, troca os arquivos e abre de novo.
 
-Para usar sem instalar, abra `app\argos-app.exe` direto da pasta extraída.
+Como o executável não é assinado, o Windows pode mostrar o aviso do SmartScreen no primeiro download ("Mais informações" > "Executar assim mesmo").
+
+Para remover, use Configurações > Aplicativos > Argos > Desinstalar. O desinstalador pergunta se quer apagar também as configurações, sessões e logs de `%LOCALAPPDATA%\argos`; por padrão eles ficam.
+
+Instalação silenciosa, para scripts: `Argos-Setup-<versão>.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`.
+
+### Versão portátil
+
+Para usar sem instalar, baixe o `argos-<versão>-portatil.zip`, extraia e abra `app\argos-app.exe`. Ela não cria atalhos nem coloca o comando `argos` no PATH (use `app\argos.exe`). Os dados também ficam em `%LOCALAPPDATA%\argos`.
 
 ## Primeiros passos
 
@@ -369,8 +377,10 @@ Não são exportados: variáveis de ambiente, sessões capturadas de processos r
 
 O app procura versões novas em dois lugares e avisa quando encontra:
 
-- Releases do GitHub deste repositório (`repo_atualizacao` no `config.json`). O zip é baixado e o SHA-256 informado pelo GitHub é conferido antes de instalar; se não conferir, a atualização é cancelada.
-- Uma pasta local (`pasta_atualizacao`; por padrão, `dist` deste repositório dentro da pasta de projetos). Serve para quem gera o zip numa máquina e sincroniza a pasta com as outras. O `gerar_zip.ps1` grava um `argos-<versão>.zip.sha256` ao lado, que também é conferido.
+- Releases do GitHub deste repositório (`repo_atualizacao` no `config.json`). O instalador é baixado e o SHA-256 informado pelo GitHub é conferido antes de rodar; se não conferir, a atualização é cancelada.
+- Uma pasta local (`pasta_atualizacao`; por padrão, `dist` deste repositório dentro da pasta de projetos). Serve para quem gera o instalador numa máquina e sincroniza a pasta com as outras. O `gerar_pacotes.ps1` grava um `.sha256` ao lado do instalador, que também é conferido.
+
+Nos dois casos o instalador roda em modo silencioso: fecha o app, troca os arquivos e abre de novo.
 
 `argos atualizar` faz a mesma verificação pelo terminal.
 
@@ -423,14 +433,15 @@ Se o projeto estiver em uma pasta sincronizada (OneDrive, Dropbox), é melhor ma
 $env:UV_PROJECT_ENVIRONMENT = "$env:LOCALAPPDATA\argos\venv-dev"
 ```
 
-Scripts:
+Scripts (precisam do [Inno Setup](https://jrsoftware.org/isinfo.php): `winget install JRSoftware.InnoSetup`):
 
 | Script | O que faz |
 |---|---|
-| `instalar.ps1` | roda os testes, empacota com PyInstaller e instala nesta máquina (`-SemInicializacao` não cria o atalho de inicialização) |
-| `empacotar\gerar_zip.ps1` | gera `dist\argos-<versão>.zip` com o app pronto, instalador, desinstalador e instruções |
+| `instalar.ps1` | roda os testes, empacota com PyInstaller, gera o instalador e instala nesta máquina em modo silencioso (`-Pacotes` gera também o zip portátil) |
+| `empacotar\gerar_pacotes.ps1` | gera em `dist\` o `Argos-Setup-<versão>.exe` (com o `.sha256`) e o `argos-<versão>-portatil.zip` |
+| `empacotar\argos.iss` | script do instalador (Inno Setup) |
 
-Para lançar uma versão: altere `argos/__init__.py` e `pyproject.toml`, rode `instalar.ps1` e depois `empacotar\gerar_zip.ps1`.
+Para lançar uma versão: altere `argos/__init__.py` e `pyproject.toml`, rode `instalar.ps1 -Pacotes` e publique os dois arquivos de `dist\` na release.
 
 ## Limitações
 

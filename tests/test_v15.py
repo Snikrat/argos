@@ -147,3 +147,32 @@ def test_exportar_e_importar_sem_variaveis(dados, tmp_path):
     assert preferencias.porta_reservada("loja", "web|npm run dev") == 5180
     assert [s["nome"] for s in sessoes.listar()] == ["trabalho"]
     assert not transporte.importar(novo, str(dados / "registro.json"))[0]
+
+
+# --- instalador (Inno Setup) como pacote de atualização ---------------------------
+
+def test_atualizacao_prefere_o_instalador_e_confere_o_hash(tmp_path, monkeypatch):
+    import hashlib
+
+    from argos.core import atualizacao
+
+    canal, dados_ = tmp_path / "dist", tmp_path / "dados"
+    canal.mkdir()
+    monkeypatch.setattr(atualizacao, "PASTA_DADOS", dados_)
+    cfg = Config(pasta_atualizacao=str(canal), procurar_atualizacao=False)
+    (canal / "argos-99.0.0.zip").write_bytes(b"zip antigo")
+    (canal / "argos-99.0.0-portatil.zip").write_bytes(b"portatil nao e pacote de atualizacao")
+    setup = canal / "Argos-Setup-99.0.0.exe"
+    setup.write_bytes(b"instalador")
+    nova = atualizacao.disponivel(cfg)
+    assert nova["tipo"] == "setup" and nova["nome"] == "Argos-Setup-99.0.0.exe"
+
+    comando, erro = atualizacao.preparar(nova)
+    assert not erro and comando[1:] == ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]
+    assert comando[0] == str(dados_ / "atualizacao" / "Argos-Setup-99.0.0.exe")  # roda a cópia, fora da pasta sincronizada
+
+    (canal / "Argos-Setup-99.0.0.exe.sha256").write_text("0" * 64 + "  Argos-Setup-99.0.0.exe")
+    comando, erro = atualizacao.preparar(nova)
+    assert comando is None and "não confere" in erro
+    (canal / "Argos-Setup-99.0.0.exe.sha256").write_text(hashlib.sha256(b"instalador").hexdigest())
+    assert atualizacao.preparar(nova)[0]

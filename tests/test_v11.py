@@ -109,7 +109,7 @@ def test_ignora_script_de_teste_padrao(tmp_path):
 def test_atualizacao_disponivel(tmp_path):
     from argos.config import Config
 
-    cfg = Config(pastas_projetos=[str(tmp_path)], pasta_atualizacao=str(tmp_path))
+    cfg = Config(pastas_projetos=[str(tmp_path)], pasta_atualizacao=str(tmp_path), procurar_atualizacao=False)
     (tmp_path / "argos-1.0.0.zip").write_bytes(b"")
     assert atualizacao.disponivel(cfg) is None
     (tmp_path / "argos-99.0.0.zip").write_bytes(b"")

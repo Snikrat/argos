@@ -1,20 +1,18 @@
 ﻿Argos - o que está rodando de desenvolvimento (Docker, portas e processos)
+Versão portátil: funciona sem instalar.
 
-INSTALAR
+USAR
   1. Extraia este zip em qualquer lugar.
-  2. Dê dois cliques em instalar.bat.
-  Pronto: o ícone aparece perto do relógio. Ctrl+Alt+D abre o painel.
+  2. Abra app\argos-app.exe.
+  O ícone aparece perto do relógio. Ctrl+Alt+D abre o painel.
 
-  O instalador:
-  - copia o app para %LOCALAPPDATA%\argos\app (não precisa de administrador)
-  - coloca o comando "argos" no terminal (abra um terminal novo depois)
-  - faz o app iniciar com o Windows, escondido na bandeja
+  A pasta "app" precisa ficar inteira (os .exe dependem da pasta _internal ao lado).
+  Para o terminal, use app\argos.exe (ex: app\argos.exe rodar npm run dev).
 
-  Depois de instalar, a pasta extraída pode ser apagada.
-
-USAR SEM INSTALAR
-  Abra app\argos-app.exe direto. A pasta "app" precisa ficar inteira
-  (os .exe dependem da pasta _internal ao lado).
+O QUE A VERSÃO PORTÁTIL NÃO FAZ
+  Não cria atalho no Menu Iniciar, não coloca o comando "argos" no PATH e não abre
+  com o Windows. Para isso, use o instalador (Argos-Setup-<versão>.exe), na mesma
+  página de onde este zip foi baixado.
 
 REQUISITOS
   Windows 10 ou 11 com WebView2 (já vem no Windows 11 e junto com o Edge).
@@ -24,11 +22,6 @@ PRIMEIRO USO
   Por padrão, os projetos são as subpastas de "Área de Trabalho\projetos".
   Se for outro lugar, ajuste no painel: ícone de engrenagem > Pastas de projetos.
 
-TERMINAL
-  argos                    mostra tudo
-  argos rodar npm run dev  roda com logs; fechar o terminal não para o processo
-  argos ajuda              todos os comandos
-
-DESINSTALAR
-  Dois cliques em desinstalar.bat. Configurações e logs ficam em
-  %LOCALAPPDATA%\argos (apague a pasta se quiser removê-los também).
+DADOS
+  Configurações, sessões e logs ficam em %LOCALAPPDATA%\argos, mesmo na versão
+  portátil. Para remover tudo, feche o app e apague essa pasta e a pasta extraída.
