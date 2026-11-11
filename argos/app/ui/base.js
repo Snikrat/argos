@@ -140,10 +140,6 @@ function montarMenu() {
       <span class="ic">${IC[a.id]}</span><span class="rot">${a.rot}</span><span class="cont" id="cont-${a.id}"></span>
     </button>`).join("");
   $("#btn-config").innerHTML = IC.config;
-  $("#ic-busca-log").innerHTML = IC.busca;
-  $("#btn-copiar").innerHTML = IC.copiar;
-  $("#btn-pasta-logs").innerHTML = IC.pasta;
-  $("#btn-fechar-log").innerHTML = IC.fechar;
 }
 
 async function ciclo() {

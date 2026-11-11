@@ -7,11 +7,6 @@ const ACOES = {
   aba: (d) => trocarAba(d.aba),
   abrir: async (d) => { const r = await api.abrir(d.tipo, d.alvo); if (r && !r.ok) avisar(r.msg, true); },
   logs: (d) => abrirLogs(d.tipo, d.alvo, d.nome),
-  "log-fechar": () => { $("#gaveta").hidden = true; logAtual = null; fecharLogLado(); },
-  "log-copiar": async () => {
-    const r = await api.copiar($("#log").innerText);
-    avisar(r.ok ? "Log copiado." : r.msg, !r.ok);
-  },
   copiar: async (d) => { const r = await api.copiar(d.texto); avisar(r.ok ? "Copiado." : r.msg, !r.ok); },
   celular: (d) => abrirCelular(d.porta, d.unidade),
   auto: async (d) => resultado(await api.auto(d.id, !!d.ligar)),
@@ -213,7 +208,7 @@ window.abrirModoJogo = abrirModoJogo;
 
 async function abrirConfig() {
   const c = await api.config();
-  const resp = await modal(`<div class="folha"><h3>Configurações</h3><p>Dados e logs ficam em ${esc(c.pasta_dados)}.</p>
+  const resp = await modal(`<div class="folha configuracoes"><h3>Configurações</h3><p>Dados e logs ficam em ${esc(c.pasta_dados)}.</p>
     <div class="form">
       <div class="grupo"><div class="bloco-campo"><label>Pastas de projetos <small>uma por linha; cada subpasta vira um projeto</small></label>
         <textarea class="campo mono" id="cf-pastas" rows="2">${esc((c.pastas_projetos || []).join("\n"))}</textarea></div></div>

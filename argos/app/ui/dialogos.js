@@ -181,9 +181,7 @@ async function abrirBuscaLogs(projeto, inicial = "") {
       if (!b) return;
       const texto = input.value.trim();
       fechar(null);
-      abrirLogs(b.dataset.tipo, b.dataset.abrir, b.dataset.nome);
-      $("#log-busca").value = texto;
-      setTimeout(() => renderLog(true), 1500);
+      abrirLogs(b.dataset.tipo, b.dataset.abrir, b.dataset.nome).buscar(texto);
     });
     if (inicial) buscar();
   });

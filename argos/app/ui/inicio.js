@@ -14,14 +14,6 @@ document.addEventListener("click", (ev) => {
   if (f) f(el.dataset, el.tagName === "BUTTON" ? el : null);
 });
 
-// Trocar de serviço no painel de logs, ou abrir um segundo log ao lado
-document.addEventListener("click", (ev) => {
-  const b = ev.target.closest("[data-log-alvo], [data-log-lado]");
-  if (!b) return;
-  if (b.dataset.logLado) abrirLogLado(b.dataset.logTipo, b.dataset.logLado, b.dataset.logNome);
-  else abrirLogs(b.dataset.logTipo, b.dataset.logAlvo, b.dataset.logNome);
-});
-
 // Chaves (switch) disparam a ação ao mudar
 document.addEventListener("change", async (ev) => {
   const el = ev.target;
@@ -37,9 +29,10 @@ document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); abrirPaleta(); return; }
   // Linhas que funcionam como botão (role="button") respondem a Enter/Espaço
   if ((e.key === "Enter" || e.key === " ") && e.target.matches?.('[role="button"][data-acao]')) { e.preventDefault(); e.target.click(); return; }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f" && !$("#gaveta").hidden) { e.preventDefault(); $("#log-busca").focus(); return; }
+  // Com janelas de log abertas, Ctrl+F busca e Esc fecha a da frente
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f" && logAtual && $("#modal").hidden) { e.preventDefault(); logAtual.busca.focus(); return; }
   if ($("#paleta")) return;
-  if (e.key === "Escape" && !$("#gaveta").hidden && $("#modal").hidden) ACOES["log-fechar"]();
+  if (e.key === "Escape" && logAtual && $("#modal").hidden) logAtual.fechar();
   else if (e.key === "Escape" && aba === "projetos" && projetoAberto && $("#modal").hidden && !e.target.matches("input, textarea, select")) ACOES["fechar-projeto"]();
   if (e.key === "F5" || ((e.ctrlKey || e.metaKey) && e.key === "r")) { e.preventDefault(); ciclo(); }
   if ((e.ctrlKey || e.metaKey) && e.key === "w") { e.preventDefault(); api.esconder(); }
@@ -53,11 +46,6 @@ document.querySelector(".lateral-topo").addEventListener("dblclick", (e) => { if
 // Semáforos ficam cinza quando a janela perde o foco
 window.addEventListener("blur", () => document.body.classList.add("desfocada"));
 window.addEventListener("focus", () => { document.body.classList.remove("desfocada"); if (api) api.em_foco(); });
-
-// Busca e filtro do log
-$("#log-busca").addEventListener("input", () => renderLog(true));
-$("#log-busca").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); e.target.value = ""; renderLog(); } });
-$("#log-erros").addEventListener("change", () => { renderLog(); $("#log").scrollTop = $("#log").scrollHeight; });
 
 // Redimensionar pelas alças (a janela não tem a borda do Windows)
 document.querySelectorAll("[data-redim]").forEach((alca) => {
